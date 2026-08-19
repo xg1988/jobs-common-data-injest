@@ -5,6 +5,9 @@ name: check-api
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/check-api.yml"
 
 jobs:
   check:
@@ -30,3 +33,4 @@ jobs:
           head -c 400 /tmp/body.txt || true
         env:
           KEY: ${{ secrets.DATA_GO_KR_KEY }}
+# 실행 트리거용 1787122875
