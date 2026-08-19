@@ -1,16 +1,16 @@
 {
-  "updated_at": "2026-08-19T15:10:16Z",
+  "updated_at": "2026-08-19T16:07:27Z",
   "sources": {
     "molit_apt_trade": {
-      "status": "ok",
+      "status": "failed",
       "last_success": "2026-08-19T15:10:16Z",
-      "last_attempt": "2026-08-19T15:10:16Z",
-      "consecutive_failures": 0,
+      "last_attempt": "2026-08-19T16:07:27Z",
+      "consecutive_failures": 1,
       "record_count": 2813,
       "as_of": "2026-08",
       "schema_version": 1,
       "quarantined_count": 0,
-      "error": null
+      "error": "RuntimeError: 24개 요청이 전부 실패했습니다. 첫 오류: ConnectTimeout: timed out"
     }
   }
 }
