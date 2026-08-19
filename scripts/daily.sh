@@ -26,12 +26,13 @@ echo "시작: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 cd "$REPO" || exit 1
 
 # ---- 1. 최신 코드 받기 ------------------------------------------------------
-# 남이 고친 게 있으면 반영합니다. 로컬 데이터 변경은 아래에서 커밋되므로
-# 여기서 충돌나지 않게 rebase 로 받습니다.
+# 남이 고친 게 있으면 반영합니다.
+# --autostash: 남아 있는 로컬 변경(파일 모드 등)을 잠깐 치웠다 되돌립니다.
+#              이게 없으면 사소한 변경 하나에 수집 전체가 멈춥니다.
 git fetch --quiet origin main
-if ! git rebase --quiet origin/main; then
-  echo "!! rebase 실패 -- 수동 확인 필요. 이번 회차는 건너뜁니다."
-  git rebase --abort
+if ! git pull --quiet --rebase --autostash origin main; then
+  echo "!! 코드 받기 실패 -- 충돌을 수동으로 푸세요. 이번 회차는 건너뜁니다."
+  git rebase --abort 2>/dev/null
   exit 1
 fi
 
