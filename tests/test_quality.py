@@ -303,3 +303,24 @@ def test_raw_is_stored_gzipped_and_reproducibly(tmp_storage):
     # 같은 내용 재저장 -> 바이트 동일 (gzip 헤더에 시각이 안 박힘)
     storage.write_raw("fake", "2026-08-19", env)
     assert path.read_bytes() == first
+
+
+def test_series_gets_one_point_per_as_of(tmp_storage):
+    """소스가 여러 시점을 돌려주면 점도 그만큼 찍힙니다."""
+
+    class MultiPeriod(FakeSource):
+        def series_points(self, records, as_of):
+            return [
+                {"as_of": "2026-07", "record_count": 1, "metrics": {}},
+                {"as_of": "2026-08", "record_count": 2, "metrics": {}},
+            ]
+
+    pipeline.run_source(
+        MultiPeriod([apt(price_manwon=180000 + i) for i in range(20)]),
+        run_date="2026-08-19",
+    )
+
+    series = storage.read_json(storage.series_path("fake"))
+    assert [p["as_of"] for p in series["points"]] == ["2026-07", "2026-08"]
+    assert [p["record_count"] for p in series["points"]] == [1, 2]
+    assert all(p["backfill"] is False for p in series["points"])

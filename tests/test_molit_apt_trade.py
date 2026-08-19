@@ -362,3 +362,20 @@ def test_series_metrics_exclude_canceled(monkeypatch):
     assert metrics["canceled_count"] == 2
     # 취소분(183,500)이 빠지고 정상분 중 최고가만 남습니다.
     assert metrics["overall"]["price_manwon_max"] == 145000
+
+
+def test_series_is_split_by_deal_month(monkeypatch):
+    """롤링 윈도우로 여러 달을 한 번에 받아도 점은 달마다 따로 찍혀야 합니다.
+
+    한 점에 몰아넣으면 그 점만 3개월치가 돼서, 백필 점(한 달치)과 나란히
+    놓았을 때 그래프에 가짜 급등이 생깁니다.
+    """
+    src = make_source(monkeypatch)
+    june = items_of("molit_apt_trade_page1.xml")  # 2026-06 2건
+    july = [dict(it, dealMonth="7") for it in items_of("molit_apt_trade_page2.xml")]
+
+    points = src.series_points(src.normalize(raw_from_items(june + july)), "2026-07")
+
+    assert [p["as_of"] for p in points] == ["2026-06", "2026-07"]
+    assert [p["record_count"] for p in points] == [2, 2]
+    assert points[0]["metrics"]["overall"]["price_manwon_max"] == 145000

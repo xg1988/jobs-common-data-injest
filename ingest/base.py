@@ -75,6 +75,26 @@ class Source(ABC):
         """
         return {}
 
+    def series_points(self, records: list[dict], as_of: str) -> list[dict]:
+        """이번 수집을 series 의 점 몇 개로 나눌지 정한다.
+
+        ★ 한 점 = 한 기준시점(as_of) 이어야 합니다.
+
+        실거래가처럼 롤링 윈도우로 여러 달을 한 번에 받는 소스는, 받은 걸
+        통째로 한 점에 넣으면 안 됩니다. 그러면 그 점만 3개월치가 돼서
+        그래프에 가짜 급등이 생깁니다. (백필은 한 달씩 넣으므로 더 어긋납니다.)
+
+        기본 구현은 소스가 한 시점만 받는다고 보고 점 하나를 만듭니다.
+        여러 시점을 한 번에 받는 소스는 이걸 오버라이드하세요.
+        """
+        return [
+            {
+                "as_of": as_of,
+                "record_count": len(records),
+                "metrics": self.series_metrics(records),
+            }
+        ]
+
     # ---- 백필 (선택 구현) -------------------------------------------------
 
     supports_backfill: bool = False

@@ -588,6 +588,36 @@ class MolitAptTrade(Source):
 
     # -- series -------------------------------------------------------------
 
+    def series_points(self, records: list[dict], as_of: str) -> list[dict]:
+        """계약년월별로 점을 나눈다.
+
+        일일 수집은 최근 3개월을 한 번에 받습니다. 이걸 점 하나에 넣으면
+        그 점만 3개월치가 돼서 그래프에 가짜 급등이 생깁니다.
+        (백필은 한 달씩 넣으므로 나란히 놓으면 바로 어긋납니다.)
+
+        대신 계약년월로 쪼개면, 같은 달을 여러 시점에 잰 기록이 쌓입니다.
+        "2026-06 을 7월에 쟀을 때 1,394건 / 8월에 쟀을 때 1,412건" 처럼요.
+        신고 지연이 얼마나 메워지는지가 그대로 보입니다 -- 이 프로젝트가
+        원래 만들고 싶었던 시계열이 이쪽입니다.
+        """
+        by_month: dict[str, list[dict]] = {}
+        for rec in records:
+            deal_date = rec.get("deal_date") or ""
+            if len(deal_date) >= 7:
+                by_month.setdefault(deal_date[:7], []).append(rec)
+
+        if not by_month:
+            return super().series_points(records, as_of)
+
+        return [
+            {
+                "as_of": month,
+                "record_count": len(group),
+                "metrics": self.series_metrics(group),
+            }
+            for month, group in sorted(by_month.items())
+        ]
+
     def series_metrics(self, records: list[dict]) -> dict[str, Any]:
         """시점별 요약. 취소된 거래는 집계에서 제외합니다.
 

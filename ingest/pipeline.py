@@ -215,15 +215,19 @@ def run_source(
         result.written.append(_rel(path))
         log(f"[{name}] latest 갱신 -> {_rel(path)}")
 
-        point = {
-            "collected_at": latest_env["collected_at"],
-            "as_of": as_of,
-            "record_count": len(records),
-            "partial": fetched.partial,
-            "backfill": False,
-            "metrics": source.series_metrics(records),
-        }
-        path = storage.append_series(name, point, schema_version=source.schema_version)
+        # 한 번 수집해도 기준시점이 여러 개일 수 있습니다 (롤링 윈도우).
+        # 점 하나에 몰아넣으면 그래프에 가짜 급등이 생깁니다.
+        for point in source.series_points(records, as_of):
+            path = storage.append_series(
+                name,
+                {
+                    **point,
+                    "collected_at": latest_env["collected_at"],
+                    "partial": fetched.partial,
+                    "backfill": False,
+                },
+                schema_version=source.schema_version,
+            )
         result.written.append(_rel(path))
 
         if previous_env is not None and not differ.is_empty(diff):
@@ -335,17 +339,17 @@ def run_backfill(
             continue
 
         if not dry_run:
-            point = {
-                "collected_at": raw_env["collected_at"],
-                "as_of": period,
-                "record_count": len(records),
-                "partial": fetched.partial,
-                "backfill": True,
-                "metrics": source.series_metrics(records),
-            }
-            storage.append_series(
-                source.name, point, schema_version=source.schema_version
-            )
+            for point in source.series_points(records, period):
+                storage.append_series(
+                    source.name,
+                    {
+                        **point,
+                        "collected_at": raw_env["collected_at"],
+                        "partial": fetched.partial,
+                        "backfill": True,
+                    },
+                    schema_version=source.schema_version,
+                )
 
         res.status = "ok"
         log(f"[{source.name}] {period} -> {len(records)}건")
