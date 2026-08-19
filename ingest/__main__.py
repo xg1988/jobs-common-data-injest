@@ -181,8 +181,47 @@ def cmd_diff(args) -> int:
     return EXIT_OK
 
 
+def _report_field_coverage(items: list[dict]) -> None:
+    """실응답의 태그명을 FIELD_ALIASES 와 대조해 [확인 필요] 를 해소한다."""
+    from ingest.sources import molit_apt_trade as m
+
+    if not items:
+        print("       (item 이 0건이라 필드 대조를 건너뜁니다. 다른 월로 다시 시도해 보세요.)")
+        return
+
+    tags = sorted({tag for item in items for tag in item})
+    print(f"       응답 태그 {len(tags)}개: {', '.join(tags)}")
+
+    matched: list[str] = []
+    missing: list[str] = []
+    for field, candidates in m.FIELD_ALIASES.items():
+        hit = next((c for c in candidates if c in tags), None)
+        if hit:
+            matched.append(f"{field} <- {hit}")
+        else:
+            missing.append(f"{field} (후보: {'/'.join(candidates)})")
+
+    print("       ── 매칭됨 ──")
+    for line in matched:
+        print(f"         {line}")
+    if missing:
+        print("       ── 매칭 실패 (FIELD_ALIASES 수정 필요) ──")
+        for line in missing:
+            print(f"         {line}")
+
+    unused = [t for t in tags if not any(t in c for c in m.FIELD_ALIASES.values())]
+    if unused:
+        print(f"       ── 안 쓰는 태그 ──\n         {', '.join(unused)}")
+
+    sample = items[0]
+    print("       ── 첫 레코드 원문 값 ──")
+    for field in ("price_manwon", "canceled", "canceled_date", "area_m2", "floor"):
+        value = m.pick(sample, field)
+        print(f"         {field:<14} = {value!r}")
+
+
 def cmd_capture(args) -> int:
-    """실응답을 tests/fixtures/ 에 저장한다 (기획서 16장 2단계).
+    """실응답을 tests/fixtures/ 에 저장하고 필드명을 대조한다 (기획서 16장 2단계).
 
     테스트에는 실제 호출을 넣지 않습니다. 여기서 받은 fixture 로만 돕니다.
     """
@@ -193,12 +232,23 @@ def cmd_capture(args) -> int:
 
     import httpx
 
+    try:
+        m.read_service_key()
+    except RuntimeError as exc:
+        raise SystemExit(
+            f"{exc}\n"
+            f"  서버라면:  echo 'DATA_GO_KR_KEY=발급받은키' > {storage.ROOT / '.env'}"
+        ) from None
+
     src = m.MolitAptTrade()
     lawd = args.region or (src.regions[0]["code"] if src.regions else "11680")
     ymd = (args.month or date.today().strftime("%Y-%m")).replace("-", "")
+    print(f"대상: LAWD_CD={lawd} DEAL_YMD={ymd} numOfRows={args.rows}")
+    print(f"엔드포인트: {src.base_url}\n")
 
     out_dir = storage.ROOT / "tests" / "fixtures"
     out_dir.mkdir(parents=True, exist_ok=True)
+    json_supported = False
 
     for fmt in ("xml", "json"):
         params = {
@@ -215,13 +265,35 @@ def cmd_capture(args) -> int:
                 src.base_url, params=params, timeout=src.timeout, follow_redirects=True
             )
             body = resp.text
-            ext = "json" if body.lstrip().startswith("{") else "xml"
+            is_json = body.lstrip().startswith("{")
+            ext = "json" if is_json else "xml"
             path = out_dir / f"molit_apt_trade_{lawd}_{ymd}_{fmt}.{ext}"
             path.write_text(body, encoding="utf-8")
-            print(f"[{fmt}] HTTP {resp.status_code} -> {path} ({len(body)} bytes)")
-            print(f"       머리 200자: {body[:200].strip()!r}")
+            print(f"[{fmt} 요청] HTTP {resp.status_code} -> {path.name} ({len(body)} bytes, 실제 {ext})")
+
+            if fmt == "json":
+                json_supported = is_json
+            try:
+                if is_json:
+                    items, total, code, msg = m.parse_json_response(resp.json())
+                else:
+                    items, total, code, msg = m.parse_xml_response(body)
+            except m.ApiError as exc:
+                print(f"       API 에러: {exc}")
+                continue
+            print(f"       resultCode={code!r} totalCount={total} items={len(items)}")
+            if fmt == "xml" or is_json:
+                _report_field_coverage(items)
         except Exception as exc:  # noqa: BLE001
-            print(f"[{fmt}] 실패: {type(exc).__name__}: {exc}")
+            print(f"[{fmt} 요청] 실패: {type(exc).__name__}: {exc}")
+        print()
+
+    print("── 다음 할 일 ──")
+    print(f"  1. config/sources.yml 의 response_format 을 "
+          f"{'json 으로 바꿔도 됩니다' if json_supported else 'xml 로 둡니다 (JSON 미지원)'}")
+    print("  2. 위 '매칭 실패' 목록이 있으면 FIELD_ALIASES 를 고치세요")
+    print("  3. tests/fixtures/README.md 의 '⚠️ 합성' 표시를 지우세요")
+    print("  4. python -m ingest run --source molit_apt_trade --verbose")
     return EXIT_OK
 
 
