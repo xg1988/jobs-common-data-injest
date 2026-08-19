@@ -49,8 +49,10 @@ def update(
     status: Status,
     record_count: int | None = None,
     as_of: str | None = None,
+    as_of_precision: str | None = None,
     schema_version: int | None = None,
     quarantined_count: int = 0,
+    partial: bool = False,
     error: str | None = None,
     attempted_at: str | None = None,
 ) -> dict:
@@ -83,7 +85,41 @@ def update(
     sources[name] = entry
     doc["updated_at"] = storage.iso_utc()
     storage.write_json(storage.meta_path(), doc)
+    _mirror_to_db(name, entry, as_of_precision=as_of_precision, partial=partial)
     return entry
+
+
+def _mirror_to_db(
+    name: str, entry: dict, *, as_of_precision: str | None, partial: bool
+) -> None:
+    """상태를 DB 에도 남긴다.
+
+    실패·격리 상태까지 전부 여기를 지나므로, 소비자는 파일이든 DB든
+    같은 계약(status != 'ok' 이면 쓰지 않는다)으로 판단할 수 있습니다.
+
+    DB 가 안 되더라도 meta.json 은 이미 저장됐으니 조용히 넘어갑니다.
+    """
+    from ingest import db
+
+    if not db.enabled():
+        return
+    try:
+        db.write_source_state(
+            name,
+            status=entry["status"],
+            last_success=entry["last_success"],
+            last_attempt=entry["last_attempt"],
+            consecutive_failures=entry["consecutive_failures"],
+            record_count=entry["record_count"],
+            as_of=entry["as_of"],
+            as_of_precision=as_of_precision or "month",
+            schema_version=entry["schema_version"],
+            quarantined_count=entry["quarantined_count"],
+            partial=partial,
+            error=entry["error"],
+        )
+    except Exception:  # noqa: BLE001 -- meta.json 이 이미 진실을 담고 있습니다
+        pass
 
 
 def alerting_sources() -> list[str]:

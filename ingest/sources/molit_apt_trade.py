@@ -588,6 +588,58 @@ class MolitAptTrade(Source):
 
     # -- series -------------------------------------------------------------
 
+    # -- DB 매핑 -------------------------------------------------------------
+
+    db_table = "mkt_apt_trade"
+    db_conflict_key = "key"
+    db_event_table = "mkt_apt_trade_event"
+
+    def db_rows(self, records: list[dict], *, collected_at: str) -> list[dict]:
+        return [
+            {
+                "key": r["_key"],
+                "region_code": r["region_code"],
+                "dong": r["dong"],
+                "apt_name": r["apt_name"],
+                "area_m2": r["area_m2"],
+                "floor": r["floor"],
+                "built_year": r["built_year"],
+                "deal_date": r["deal_date"],
+                "price_manwon": r["price_manwon"],
+                "canceled": r["canceled"],
+                "canceled_date": r["canceled_date"],
+                "deal_type": r["deal_type"],
+                # 갱신될 때 더 이른 값이 지켜집니다 (DB 트리거).
+                "first_seen_at": collected_at,
+                "last_seen_at": collected_at,
+            }
+            for r in records
+        ]
+
+    def db_event_rows(
+        self, diff: dict, *, observed_on: str, observed_at: str
+    ) -> list[dict]:
+        base = {"observed_on": observed_on, "observed_at": observed_at}
+        rows: list[dict] = []
+        for entry in diff.get("added", []):
+            rows.append({**base, "event": "added", "key": entry["_key"], "record": entry["record"]})
+        for entry in diff.get("removed", []):
+            # 실거래가에서 removed 는 거의 안 나와야 정상입니다.
+            # 행을 지우지는 않습니다 -- 사라진 이유를 모르는 채 지우면 복구가 안 됩니다.
+            rows.append({**base, "event": "removed", "key": entry["_key"], "record": entry["record"]})
+        for entry in diff.get("changed", []):
+            rows.append(
+                {
+                    **base,
+                    "event": "changed",
+                    "key": entry["_key"],
+                    "field": entry["field"],
+                    "before_value": entry["before"],
+                    "after_value": entry["after"],
+                }
+            )
+        return rows
+
     def series_points(self, records: list[dict], as_of: str) -> list[dict]:
         """계약년월별로 점을 나눈다.
 

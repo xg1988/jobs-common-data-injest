@@ -6,9 +6,11 @@
 상태만 돌려주고 과거 이력을 주지 않습니다. "어제보다 늘었다"를 말하려면 어제 찍어 둔
 스냅샷이 있어야 합니다.
 
-소비자는 이 저장소를 `raw.githubusercontent.com` 으로 읽습니다.
-(블로그 자동화 컨테이너는 공공 API 도메인이 전부 차단돼 있습니다. 이 제약이 전체
-설계를 결정합니다 — 결과물은 반드시 저장소에 커밋되어야 합니다.)
+저장은 두 곳에 합니다 -- **Supabase(주)** 와 **GitHub 저장소(미러)**.
+
+블로그 자동화 컨테이너는 공공 API 도메인이 전부 차단돼 있어서, 소비자가 공공 API 를
+직접 부를 수 없습니다. 그래서 수집은 여기서만 하고, 소비자는 DB(PostgREST) 또는
+`raw.githubusercontent.com` 으로 읽습니다. 이 제약이 전체 설계를 결정합니다.
 
 ---
 
@@ -16,7 +18,7 @@
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env          # DATA_GO_KR_KEY 를 채우세요
+cp .env.example .env          # DATA_GO_KR_KEY 를 채우세요 (DB 를 쓰려면 SUPABASE_* 도)
 python -m ingest list
 python -m ingest run --source molit_apt_trade --verbose
 pytest
@@ -24,32 +26,66 @@ pytest
 
 ---
 
+## 저장 위치는 두 곳입니다
+
+**DB(Supabase)가 주 저장소, GitHub 저장소가 미러**입니다. 같은 수집 결과를 양쪽에
+씁니다. DB 가 죽어도 파일은 남고, 나중에 `ingest sync` 로 다시 채웁니다.
+
+| | DB (Supabase) | GitHub 미러 |
+|---|---|---|
+| 읽는 법 | PostgREST (HTTPS + publishable 키) | `raw.githubusercontent.com` |
+| 부분 조회 | ✅ 지역·기간·가격으로 필터 | ❌ 파일 통째로 |
+| 응답 크기 | 강남구만 147 KB | 전체 1.3 MB |
+| 원본(raw) | ✗ | ✅ gzip |
+| 버전 이력 | 이벤트 테이블 | git |
+
+---
+
 ## 소비자용 계약
 
-**데이터를 쓰기 전에 반드시 `meta.json` 부터 읽으세요.**
+**데이터를 쓰기 전에 반드시 상태부터 읽으세요.** `status != "ok"` 이면 그 소스를
+쓰지 않습니다. 봉투/행의 `partial: true` 도 같은 뜻입니다.
 
-```jsonc
-{
-  "sources": {
-    "molit_apt_trade": {
-      "status": "ok",            // ok | stale | quarantined | failed
-      "as_of": "2026-08",
-      "record_count": 3421
-    }
-  }
-}
+```bash
+BASE=https://hmsyfipqrvdfitzmuaph.supabase.co/rest/v1
+KEY=sb_publishable_KxD30KDmxEqMP4dsNcLvTA_NMp1duPt   # 공개 읽기 전용
+
+# 1) 상태 확인
+curl "$BASE/mkt_source_state?select=source,status,as_of,record_count" -H "apikey: $KEY"
+
+# 2) 강남구 84제곱미터대, 취소 제외, 비싼 순
+curl "$BASE/mkt_apt_trade?select=dong,apt_name,area_m2,floor,deal_date,price_manwon\
+&region_code=eq.11680&area_m2=gte.84&area_m2=lt.85&canceled=is.false\
+&order=price_manwon.desc&limit=10" -H "apikey: $KEY"
+
+# 3) 오늘 바뀐 것 (알림 봇)
+curl "$BASE/mkt_apt_trade_event?observed_on=eq.2026-08-19&event=eq.changed" -H "apikey: $KEY"
+
+# 4) 월별 추이
+curl "$BASE/mkt_series_point?source=eq.molit_apt_trade&order=as_of" -H "apikey: $KEY"
 ```
 
-`status != "ok"` 이면 그 소스를 쓰지 않습니다.
-봉투의 `partial: true` 도 같은 뜻입니다.
-
-| 경로 | 내용 | 누가 읽나 |
+| 테이블 | 내용 | 누가 읽나 |
 |---|---|---|
-| `data/latest/{source}.json` | 최신 정규화 스냅샷 | 블로그 파이프라인, 웹사이트 |
-| `data/series/{source}.json` | 시점별 요약 누적 | 블로그 파이프라인 |
-| `data/diff/{source}/{날짜}.json` | 전일 대비 변화 | 알림 봇 |
-| `data/raw/{source}/{날짜}.json.gz` | 원본 (정규화 전, gzip) | 사람 (재처리용) |
-| `data/quarantine/{source}/{날짜}.json` | 검사 실패분 | 사람 (디버깅용) |
+| `mkt_source_state` | 소스별 상태 (`meta.json` 과 같은 계약) | 전부 — **제일 먼저** |
+| `mkt_apt_trade` | 거래 현재 상태. 한 행 = 한 거래 | 블로그 파이프라인, 웹사이트 |
+| `mkt_apt_trade_event` | 무엇이 언제 바뀌었나 (added/removed/changed) | 알림 봇 |
+| `mkt_series_point` | 기준시점 × 관측일 요약 | 블로그 파이프라인 |
+| `mkt_collection_run` | 실행 로그 | 사람 |
+
+쓰기는 `service_role` 키로만 가능합니다. 위 publishable 키는 **읽기 전용**입니다
+(RLS 로 select 만 허용).
+
+### GitHub 미러 경로
+
+| 경로 | 내용 |
+|---|---|
+| `data/latest/{source}.json` | 최신 정규화 스냅샷 |
+| `data/series/{source}.json` | 시점별 요약 누적 |
+| `data/diff/{source}/{날짜}.json` | 전일 대비 변화 |
+| `data/raw/{source}/{날짜}.json.gz` | **원본** (정규화 전, gzip) — DB 에는 없습니다 |
+| `data/quarantine/{source}/{날짜}.json` | 검사 실패분 |
+| `meta.json` | 소스별 상태 |
 
 ### `collected_at` 과 `as_of` 는 다릅니다
 
@@ -66,6 +102,7 @@ pytest
 ```
 run       --source <name> | --all       일일 수집
 backfill  --source <name> --from --to   과거 채우기 (latest 를 건드리지 않음)
+sync      --source <name> | --all       저장된 파일을 DB 로 재동기화
 validate  --source <name>               저장된 latest 재검사
 diff      --source <name> --from --to   두 날짜 raw 로 diff 재계산
 capture   --source <name>               실응답을 tests/fixtures/ 에 저장
@@ -167,9 +204,11 @@ diff 엔진은 append형·update형을 구분하지 않습니다. 짝짓기는 `
 - [x] 이틀치 diff 생성 — `ingest diff --from --to` 로 실데이터 검증 (`+30 -0 ~3`)
 - [x] API 실패 시 `latest` 미덮어쓰기
 - [x] 품질 검사 실패분 `quarantine/` 격리
-- [x] `pytest` 전부 통과 (53개)
-- [ ] **GitHub Actions 스케줄 실행 후 자동 커밋** ← 저장소가 아직 없음
-- [ ] 백필 실행 (CLI 는 준비됨)
+- [x] `pytest` 전부 통과 (65개)
+- [x] GitHub 저장소 푸시 + 익명 읽기 확인
+- [x] 백필 2024-01 ~ 2026-07 (31개월, 58,486건)
+- [x] DB(Supabase) 적재 + PostgREST 부분 조회 확인
+- [ ] **Actions 스케줄 실행 후 자동 커밋** ← 시크릿 등록 대기
 - [ ] 지역 확대
 
 ### 첫 실수집 결과 (2026-08-19)
@@ -192,3 +231,17 @@ diff 엔진은 append형·update형을 구분하지 않습니다. 짝짓기는 `
 읽으므로 압축해도 됩니다. `latest`/`series`/`diff` 는 소비자가
 `raw.githubusercontent.com` 으로 직접 읽어야 해서 평문으로 둡니다
 (`latest` 1.3 MB, `series` 4 KB).
+
+---
+
+## Actions 시크릿
+
+| 이름 | 없으면 |
+|---|---|
+| `DATA_GO_KR_KEY` | 수집 자체가 안 됩니다 (필수) |
+| `SUPABASE_URL` | DB 쓰기를 건너뛰고 파일만 커밋합니다 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 〃 |
+
+`SUPABASE_SERVICE_ROLE_KEY` 는 RLS 를 우회하는 관리자 키입니다.
+Supabase 대시보드 → Project Settings → API → `service_role` 에서 복사하세요.
+**저장소·코드·로그 어디에도 남기지 마세요.** 새면 누구나 테이블을 지울 수 있습니다.

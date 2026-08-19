@@ -169,6 +169,31 @@ def cmd_validate(args) -> int:
     return EXIT_OK if result.ok else EXIT_SOFT_FAIL
 
 
+def cmd_sync(args) -> int:
+    """저장된 파일을 DB 로 다시 밀어 넣는다 (API 호출 없음)."""
+    from ingest import db
+
+    if not db.enabled():
+        raise SystemExit(
+            f"{db.why_disabled()}\n"
+            f"  서버라면 {storage.ROOT / '.env'} 에 SUPABASE_URL 과\n"
+            f"  SUPABASE_SERVICE_ROLE_KEY 를 넣으세요."
+        )
+
+    log = _make_logger(True)
+    total = {"records": 0, "series": 0, "state": 0}
+    for name in _selected_sources(args):
+        source = registry.create(name)
+        written = pipeline.sync_to_db(source, log=log)
+        for k in total:
+            total[k] += written[k]
+    print(
+        f"\n완료: 레코드 {total['records']}행, 시계열 {total['series']}점, "
+        f"상태 {total['state']}건"
+    )
+    return EXIT_OK
+
+
 def cmd_diff(args) -> int:
     log = _make_logger(True)
     source = registry.create(args.source)
@@ -319,6 +344,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--from", dest="from_", required=True, metavar="YYYY-MM")
     sp.add_argument("--to", required=True, metavar="YYYY-MM")
     sp.set_defaults(func=cmd_backfill)
+
+    sp = common(sub.add_parser("sync", help="저장된 파일을 DB 로 재동기화"))
+    sp.add_argument("--source")
+    sp.add_argument("--all", action="store_true")
+    sp.set_defaults(func=cmd_sync)
 
     sp = common(sub.add_parser("validate", help="저장된 latest 재검사"))
     sp.add_argument("--source", required=True)

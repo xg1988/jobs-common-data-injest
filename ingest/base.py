@@ -95,6 +95,28 @@ class Source(ABC):
             }
         ]
 
+    # ---- DB 매핑 (선택 구현) ----------------------------------------------
+    #
+    # 파일 저장은 모든 소스가 공통이지만, DB 테이블은 소스마다 컬럼이 다릅니다.
+    # 아래 셋을 채우면 pipeline 이 알아서 밀어 넣습니다. 안 채우면 파일만 씁니다.
+
+    #: 정규화 레코드가 들어갈 테이블 (latest 에 해당)
+    db_table: str | None = None
+    #: 위 테이블의 유니크 키 컬럼 (upsert 기준)
+    db_conflict_key: str = "key"
+    #: diff 를 쌓을 이벤트 테이블 (선택)
+    db_event_table: str | None = None
+
+    def db_rows(self, records: list[dict], *, collected_at: str) -> list[dict]:
+        """레코드를 db_table 의 행으로 바꾼다."""
+        return []
+
+    def db_event_rows(
+        self, diff: dict, *, observed_on: str, observed_at: str
+    ) -> list[dict]:
+        """diff 를 db_event_table 의 행으로 바꾼다."""
+        return []
+
     # ---- 백필 (선택 구현) -------------------------------------------------
 
     supports_backfill: bool = False

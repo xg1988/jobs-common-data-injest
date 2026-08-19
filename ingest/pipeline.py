@@ -25,7 +25,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from ingest import differ, meta, quality, storage
+from ingest import db, differ, meta, quality, storage
 from ingest.base import Source, ValidationResult
 
 Logger = Callable[[str], None]
@@ -58,6 +58,70 @@ def _rel(path) -> str:
         return str(path.relative_to(storage.ROOT)).replace("\\", "/")
     except ValueError:
         return str(path)
+
+
+def _push_to_db(
+    source: Source,
+    *,
+    records: list[dict],
+    diff: dict,
+    series_points: list[dict],
+    collected_at: str,
+    run_date: str,
+    result: RunResult,
+    log: Logger,
+) -> None:
+    """DB 로 밀어 넣는다.
+
+    실패해도 파이프라인을 죽이지 않습니다. 파일은 이미 저장됐고 저장소에
+    커밋되므로, DB 는 `ingest sync` 로 나중에 다시 채울 수 있습니다.
+    여기서 예외를 던지면 멀쩡히 받은 데이터까지 버리게 됩니다.
+    """
+    name = source.name
+    if not db.enabled():
+        log(f"[{name}] {db.why_disabled()}")
+        return
+    if not source.db_table:
+        return
+
+    try:
+        rows = source.db_rows(records, collected_at=collected_at)
+        n = db.upsert(source.db_table, rows, on_conflict=source.db_conflict_key)
+        log(f"[{name}] DB {source.db_table} <- {n}행")
+
+        if source.db_event_table:
+            events = source.db_event_rows(
+                diff, observed_on=run_date, observed_at=collected_at
+            )
+            if events:
+                db.insert(source.db_event_table, events)
+                log(f"[{name}] DB {source.db_event_table} <- {len(events)}건")
+
+        if series_points:
+            db.write_series_points(name, series_points)
+
+        db.write_collection_run(
+            {
+                "source": name,
+                "run_date": run_date,
+                "collected_at": collected_at,
+                "as_of": result.as_of,
+                "as_of_precision": source.as_of_precision,
+                "status": result.status or "ok",
+                "record_count": len(records),
+                "quarantined_count": result.quarantined_count,
+                "partial": result.partial,
+                "added": diff["summary"]["added"],
+                "removed": diff["summary"]["removed"],
+                "changed": diff["summary"]["changed"],
+                "warnings": result.warnings,
+                "errors": result.errors,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        msg = f"DB 쓰기 실패: {type(exc).__name__}: {exc}"
+        log(f"[{name}] {msg} -- 파일은 저장됐습니다. `ingest sync` 로 재시도하세요.")
+        result.warnings.append(msg)
 
 
 def run_source(
@@ -217,16 +281,18 @@ def run_source(
 
         # 한 번 수집해도 기준시점이 여러 개일 수 있습니다 (롤링 윈도우).
         # 점 하나에 몰아넣으면 그래프에 가짜 급등이 생깁니다.
-        for point in source.series_points(records, as_of):
+        series_points = [
+            {
+                **point,
+                "collected_at": latest_env["collected_at"],
+                "partial": fetched.partial,
+                "backfill": False,
+            }
+            for point in source.series_points(records, as_of)
+        ]
+        for point in series_points:
             path = storage.append_series(
-                name,
-                {
-                    **point,
-                    "collected_at": latest_env["collected_at"],
-                    "partial": fetched.partial,
-                    "backfill": False,
-                },
-                schema_version=source.schema_version,
+                name, point, schema_version=source.schema_version
             )
         result.written.append(_rel(path))
 
@@ -245,6 +311,18 @@ def run_source(
         elif previous_env is None:
             log(f"[{name}] 이전 latest 가 없어 diff 를 건너뜁니다 (첫 실행).")
 
+        # ---- 9-b. DB ------------------------------------------------------
+        _push_to_db(
+            source,
+            records=records,
+            diff=diff,
+            series_points=series_points,
+            collected_at=latest_env["collected_at"],
+            run_date=run_date,
+            result=result,
+            log=log,
+        )
+
     # ---- 10. meta --------------------------------------------------------
     status = "stale" if (fetched.partial and partial_marks_stale) else "ok"
     if fetched.partial:
@@ -256,6 +334,8 @@ def run_source(
             status=status,
             record_count=len(records),
             as_of=as_of,
+            as_of_precision=source.as_of_precision,
+            partial=raw_partial,
             schema_version=source.schema_version,
             quarantined_count=len(validation.quarantine),
             error=fetched.notes if fetched.partial else None,
@@ -361,6 +441,53 @@ def run_backfill(
 # ---------------------------------------------------------------------------
 # 재계산 (저장된 파일만 사용, API 호출 없음)
 # ---------------------------------------------------------------------------
+
+
+def sync_to_db(source: Source, *, log: Logger = _noop) -> dict[str, int]:
+    """저장된 파일을 DB 로 다시 밀어 넣는다. API 호출 없음.
+
+    DB 쓰기가 실패한 날 복구하거나, DB 를 처음 붙일 때 씁니다.
+    파일이 진실이므로 여러 번 돌려도 결과가 같습니다 (upsert).
+    """
+    name = source.name
+    if not db.enabled():
+        raise RuntimeError(db.why_disabled())
+
+    written = {"records": 0, "series": 0, "state": 0}
+
+    env = storage.read_latest(name)
+    if env and source.db_table:
+        rows = source.db_rows(env.get("records") or [], collected_at=env["collected_at"])
+        written["records"] = db.upsert(
+            source.db_table, rows, on_conflict=source.db_conflict_key
+        )
+        log(f"[{name}] DB {source.db_table} <- {written['records']}행")
+
+    series_doc = storage.read_json(storage.series_path(name))
+    if series_doc:
+        written["series"] = db.write_series_points(name, series_doc.get("points") or [])
+        log(f"[{name}] DB 시계열 <- {written['series']}점")
+
+    entry = meta.get_source(name)
+    if entry:
+        db.write_source_state(
+            name,
+            status=entry.get("status") or "stale",
+            last_success=entry.get("last_success"),
+            last_attempt=entry.get("last_attempt") or storage.iso_utc(),
+            consecutive_failures=int(entry.get("consecutive_failures") or 0),
+            record_count=int(entry.get("record_count") or 0),
+            as_of=entry.get("as_of"),
+            as_of_precision=source.as_of_precision,
+            schema_version=entry.get("schema_version"),
+            quarantined_count=int(entry.get("quarantined_count") or 0),
+            partial=bool((env or {}).get("partial")),
+            error=entry.get("error"),
+        )
+        written["state"] = 1
+        log(f"[{name}] DB 상태 갱신 (status={entry.get('status')})")
+
+    return written
 
 
 def revalidate(source: Source, *, log: Logger = _noop) -> ValidationResult:

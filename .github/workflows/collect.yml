@@ -33,6 +33,9 @@ jobs:
         run: python -m ingest run --all --verbose
         env:
           DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+          # 둘 중 하나라도 없으면 DB 쓰기를 건너뛰고 파일만 커밋합니다.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: commit
         run: |
