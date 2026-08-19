@@ -14,6 +14,13 @@
 
 ---
 
+## 문서
+
+- [docs/API.md](docs/API.md) — 소비자용 API 명세 + 상류(공공데이터) API 명세
+- [docs/SCHEDULE.md](docs/SCHEDULE.md) — 스케줄링·재시도·품질검사·알림 명세
+
+---
+
 ## 빠르게 돌려보기
 
 ```bash
