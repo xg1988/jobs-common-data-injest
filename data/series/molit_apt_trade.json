@@ -1,7 +1,7 @@
 {
   "source": "molit_apt_trade",
   "schema_version": 1,
-  "updated_at": "2026-08-19T05:46:57Z",
+  "updated_at": "2026-08-19T07:06:57Z",
   "points": [
     {
       "collected_at": "2026-08-19T05:39:12Z",
@@ -2519,7 +2519,7 @@
           }
         }
       },
-      "collected_at": "2026-08-19T05:46:57Z",
+      "collected_at": "2026-08-19T07:06:57Z",
       "partial": false,
       "backfill": false
     },
@@ -2603,7 +2603,7 @@
           }
         }
       },
-      "collected_at": "2026-08-19T05:46:57Z",
+      "collected_at": "2026-08-19T07:06:57Z",
       "partial": false,
       "backfill": false
     },
@@ -2687,7 +2687,7 @@
           }
         }
       },
-      "collected_at": "2026-08-19T05:46:57Z",
+      "collected_at": "2026-08-19T07:06:57Z",
       "partial": false,
       "backfill": false
     }
