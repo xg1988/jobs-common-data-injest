@@ -48,7 +48,7 @@ pytest
 | `data/latest/{source}.json` | 최신 정규화 스냅샷 | 블로그 파이프라인, 웹사이트 |
 | `data/series/{source}.json` | 시점별 요약 누적 | 블로그 파이프라인 |
 | `data/diff/{source}/{날짜}.json` | 전일 대비 변화 | 알림 봇 |
-| `data/raw/{source}/{날짜}.json` | 원본 (정규화 전) | 사람 (재처리용) |
+| `data/raw/{source}/{날짜}.json.gz` | 원본 (정규화 전, gzip) | 사람 (재처리용) |
 | `data/quarantine/{source}/{날짜}.json` | 검사 실패분 | 사람 (디버깅용) |
 
 ### `collected_at` 과 `as_of` 는 다릅니다
@@ -125,6 +125,7 @@ diff 엔진은 append형·update형을 구분하지 않습니다. 짝짓기는 `
 | 항목 | 기획서 | 구현 | 왜 |
 |---|---|---|---|
 | `raw/` 봉투 | `latest` 와 동일 구조 | 봉투 필드는 동일, 본문 키만 `records` → `raw` | raw 는 정의상 정규화 전이라 레코드 리스트가 없습니다. `normalize()` 가 이 `raw` 를 그대로 받습니다 |
+| `raw/` 압축 | (언급 없음) | gzip (`.json.gz`) | 하루치 1,916 KB -> 80 KB. 전국으로 늘리면 압축 없이는 저장소가 못 버팁니다 |
 | `series/` 내용 | "누적" (형태 미정) | 시점별 **요약 지표**(`points[]`)만 누적 | 레코드 전체를 쌓으면 몇 달 만에 못 쓸 크기가 됩니다. 원본이 필요하면 `raw/` 를 봅니다. 열린 질문 5의 잠정 답 |
 | 거래일 검사 | "`as_of` 월과 일치" | "조회한 월 집합 안에 있을 것" | 수집이 롤링 윈도우(최근 3개월)라 한 달에 고정할 수 없습니다 |
 | `partial` 처리 | "true면 소비자가 쓰면 안 됨" | `meta.status = "stale"` 로 내림 (`sources.yml: partial_marks_stale`) | 소비자가 `meta.json` 만 보고 판단할 수 있어야 합니다. 지역을 전국으로 늘리면 매일 한두 건은 실패할 테니, 그때 이 값을 `false` 로 바꾸는 걸 검토하세요 |
@@ -134,9 +135,12 @@ diff 엔진은 append형·update형을 구분하지 않습니다. 짝짓기는 `
 
 ## 열린 질문 (기획서 18장) — 현재 답
 
-1. **실거래가 API가 JSON을 지원하는가** — ⏳ 미확인.
-   파서는 XML/JSON 둘 다 처리하도록 써 뒀고, `config/sources.yml` 의
-   `response_format` 으로 전환합니다. `python -m ingest capture` 로 확인하세요.
+1. **실거래가 API가 JSON을 지원하는가** — ✅ **지원합니다** (2026-08-19 실응답 확인).
+   `_type=json` 을 붙이면 됩니다. 다만 기본값은 XML 로 둡니다 -- 포털 문서상
+   데이터 포맷이 XML 이고, 둘의 내용이 같아 바꿀 이유가 없습니다.
+   `config/sources.yml` 의 `response_format` 으로 언제든 전환됩니다.
+   에러 응답의 JSON 봉투는 모양이 달라서(`OpenAPI_ServiceResponse.cmmMsgHeader`)
+   따로 처리합니다.
 2. **대상 지역 범위** — ✅ 서울 주요 8개 구로 시작 (`config/regions.yml`).
    하루 24회 호출. 동작 확인 후 늘립니다. 전국(약 250개 시군구)이면 하루 750회가
    되므로, 늘리기 전에 소요시간과 실패율을 먼저 재보세요.
@@ -153,15 +157,38 @@ diff 엔진은 append형·update형을 구분하지 않습니다. 짝짓기는 `
 
 ## 상태
 
-1단계 진행 중. 완료 기준은 `기획서 6장` 참고.
+1단계 완료 기준(기획서 6장) 대비.
 
-- [x] 뼈대 / CLI
-- [ ] **API 연결 확인** ← 여기서 막혀 있음: `DATA_GO_KR_KEY` 필요
-- [x] 어댑터 (`fetch`/`normalize`/`as_of`) — 필드명은 실응답으로 확정 필요
-- [x] 저장 계층
-- [x] 품질 검사 + 격리
-- [x] diff
-- [x] meta.json
-- [x] Actions 워크플로
-- [x] 백필 CLI
+- [x] `python -m ingest run --source molit_apt_trade` 로컬 실행 성공
+- [x] `data/raw/molit_apt_trade/{날짜}.json.gz` 생성 (원본 그대로)
+- [x] `data/latest/molit_apt_trade.json` 생성 (정규화 + 봉투)
+- [x] `data/series/molit_apt_trade.json` 누적
+- [x] `meta.json` 갱신
+- [x] 이틀치 diff 생성 — `ingest diff --from --to` 로 실데이터 검증 (`+30 -0 ~3`)
+- [x] API 실패 시 `latest` 미덮어쓰기
+- [x] 품질 검사 실패분 `quarantine/` 격리
+- [x] `pytest` 전부 통과 (53개)
+- [ ] **GitHub Actions 스케줄 실행 후 자동 커밋** ← 저장소가 아직 없음
+- [ ] 백필 실행 (CLI 는 준비됨)
 - [ ] 지역 확대
+
+### 첫 실수집 결과 (2026-08-19)
+
+| 항목 | 값 |
+|---|---|
+| 레코드 | 2,813건 (서울 8개 구 × 최근 3개월) |
+| 소요 | 8.6초 (24회 호출) |
+| 격리 | 0건 |
+| 해제(취소) 거래 | 61건 — 삭제 안 하고 플래그만 |
+| `_key` 충돌 | 52건 (1.8%) — 일련번호 부여 |
+| 월별 | 2026-06: 1,394 / 2026-07: 1,271 / **2026-08: 148** |
+
+마지막 줄이 `collected_at` 과 `as_of` 를 나눈 이유입니다. 8월은 아직 신고가
+안 들어와서 148건뿐입니다. 이걸 "거래 급감"으로 읽으면 안 됩니다.
+
+### 저장 크기
+
+`raw/` 는 gzip 입니다 — 하루치 1,916 KB → **80 KB**. 사람이 재처리할 때만
+읽으므로 압축해도 됩니다. `latest`/`series`/`diff` 는 소비자가
+`raw.githubusercontent.com` 으로 직접 읽어야 해서 평문으로 둡니다
+(`latest` 1.3 MB, `series` 4 KB).

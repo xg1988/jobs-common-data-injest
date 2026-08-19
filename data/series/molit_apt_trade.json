@@ -1,0 +1,91 @@
+{
+  "source": "molit_apt_trade",
+  "schema_version": 1,
+  "updated_at": "2026-08-19T05:36:59Z",
+  "points": [
+    {
+      "collected_at": "2026-08-19T05:36:59Z",
+      "as_of": "2026-08",
+      "record_count": 2813,
+      "partial": false,
+      "backfill": false,
+      "metrics": {
+        "deal_count": 2752,
+        "canceled_count": 61,
+        "overall": {
+          "price_manwon_median": 134500,
+          "price_manwon_mean": 175181,
+          "price_manwon_min": 5400,
+          "price_manwon_max": 2500000,
+          "area_m2_median": 84.23
+        },
+        "by_region": {
+          "11170": {
+            "deal_count": 126,
+            "price_manwon_median": 204000,
+            "price_manwon_mean": 246527,
+            "price_manwon_min": 18000,
+            "price_manwon_max": 2500000,
+            "area_m2_median": 84.93
+          },
+          "11215": {
+            "deal_count": 155,
+            "price_manwon_median": 148000,
+            "price_manwon_mean": 147054,
+            "price_manwon_min": 5400,
+            "price_manwon_max": 335000,
+            "area_m2_median": 82.08
+          },
+          "11305": {
+            "deal_count": 249,
+            "price_manwon_median": 71500,
+            "price_manwon_mean": 71428,
+            "price_manwon_min": 8000,
+            "price_manwon_max": 125000,
+            "area_m2_median": 84.67
+          },
+          "11440": {
+            "deal_count": 284,
+            "price_manwon_median": 144000,
+            "price_manwon_mean": 146157,
+            "price_manwon_min": 15900,
+            "price_manwon_max": 308000,
+            "area_m2_median": 83.85
+          },
+          "11530": {
+            "deal_count": 691,
+            "price_manwon_median": 73000,
+            "price_manwon_mean": 78505,
+            "price_manwon_min": 7500,
+            "price_manwon_max": 220000,
+            "area_m2_median": 70.52
+          },
+          "11650": {
+            "deal_count": 302,
+            "price_manwon_median": 225000,
+            "price_manwon_mean": 263879,
+            "price_manwon_min": 17500,
+            "price_manwon_max": 1300000,
+            "area_m2_median": 84.77
+          },
+          "11680": {
+            "deal_count": 373,
+            "price_manwon_median": 271000,
+            "price_manwon_mean": 304469,
+            "price_manwon_min": 16000,
+            "price_manwon_max": 1125000,
+            "area_m2_median": 84.27
+          },
+          "11710": {
+            "deal_count": 572,
+            "price_manwon_median": 192250,
+            "price_manwon_mean": 212311,
+            "price_manwon_min": 15000,
+            "price_manwon_max": 650000,
+            "area_m2_median": 84.69
+          }
+        }
+      }
+    }
+  ]
+}

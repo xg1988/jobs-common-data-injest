@@ -1,6 +1,12 @@
-"""소스 ①: 국토교통부 아파트 매매 실거래가 — 정규화 · 페이징 · 인증키."""
+"""소스 ①: 국토교통부 아파트 매매 실거래가 — 정규화 · 페이징 · 인증키.
+
+fixture 는 전부 **실응답**입니다 (2026-08-19 캡처).
+tests/fixtures/README.md 에 어떤 조건으로 받았는지 적혀 있습니다.
+"""
 
 from __future__ import annotations
+
+import json
 
 import httpx
 import pytest
@@ -9,9 +15,13 @@ from conftest import fixture
 
 from ingest.sources import molit_apt_trade as m
 
+#: 실응답을 받은 시점의 롤링 윈도우. 벽시계에 흔들리지 않게 고정합니다.
+WINDOW = ["2026-06", "2026-07", "2026-08"]
+
 
 def make_source(monkeypatch, **overrides):
     monkeypatch.setenv("DATA_GO_KR_KEY", "test-decoded-key")
+    monkeypatch.setattr(m, "month_window", lambda n, today=None: list(WINDOW[-n:]))
     src = m.MolitAptTrade(
         {
             "base_url": "http://example.test/RTMSDataSvcAptTrade",
@@ -27,7 +37,11 @@ def make_source(monkeypatch, **overrides):
     return src
 
 
-def raw_from_items(items: list[dict], months=("2026-08",)) -> dict:
+def items_of(name: str) -> list[dict]:
+    return m.parse_xml_response(fixture(name))[0]
+
+
+def raw_from_items(items: list[dict], months=("2026-06",)) -> dict:
     return {
         "endpoint": "http://example.test",
         "response_format": "xml",
@@ -38,7 +52,7 @@ def raw_from_items(items: list[dict], months=("2026-08",)) -> dict:
             {
                 "region_code": "11680",
                 "region_name": "서울 강남구",
-                "deal_ymd": "202608",
+                "deal_ymd": "202606",
                 "ok": True,
                 "error": None,
                 "total_count": len(items),
@@ -64,35 +78,38 @@ def test_decoding_key_is_left_alone():
 
 
 # ---------------------------------------------------------------------------
-# 파싱
+# 응답 파싱 (전부 실응답)
 # ---------------------------------------------------------------------------
 
 
-def test_parse_price_strips_comma_and_space():
-    """거래금액은 `" 80,000"` 형태로 온다. 콤마·공백 제거 후 int, 단위 만원."""
-    assert m.parse_price_manwon(" 80,000") == 80000
-    assert m.parse_price_manwon("250,000") == 250000
-    assert m.parse_price_manwon("") is None
+def test_response_uses_english_tags():
+    """실응답으로 확정: 태그는 영문이고 roadNm 은 없다 (기획서 추정과 다름)."""
+    tags = set(items_of("molit_apt_trade_page1.xml")[0])
+    assert {"aptNm", "umdNm", "excluUseAr", "dealAmount", "cdealType", "sggCd"} <= tags
+    assert "roadNm" not in tags
+    assert not tags & {"아파트", "법정동", "거래금액"}
 
 
-def test_parse_canceled():
-    assert m.parse_canceled("O") is True
-    assert m.parse_canceled(" ") is False
-    assert m.parse_canceled("") is False
+def test_every_normalized_field_has_a_matching_tag():
+    """FIELD_ALIASES 에 실응답에 없는 필드가 남아 있으면 실패."""
+    tags = set(items_of("molit_apt_trade_page1.xml")[0])
+    for field, candidates in m.FIELD_ALIASES.items():
+        assert tags & set(candidates), f"{field} 에 대응하는 태그가 실응답에 없음"
 
 
-def test_parse_flexible_date():
-    assert m.parse_flexible_date("26.08.14") == "2026-08-14"
-    assert m.parse_flexible_date("2026.08.14") == "2026-08-14"
-    assert m.parse_flexible_date("20260814") == "2026-08-14"
-    assert m.parse_flexible_date("") is None
-    assert m.parse_flexible_date("이상한값") is None
-
-
-def test_auth_failure_is_an_api_error():
+def test_auth_failure_xml_is_an_api_error():
     with pytest.raises(m.ApiError) as exc:
         m.parse_xml_response(fixture("molit_apt_trade_authfail.xml"))
     assert "SERVICE_KEY_IS_NOT_REGISTERED_ERROR" in str(exc.value)
+
+
+def test_auth_failure_json_is_an_api_error():
+    """JSON 에러 봉투는 모양이 다릅니다. 놓치면 인증 실패가 '빈 응답'이 됩니다."""
+    payload = json.loads(fixture("molit_apt_trade_authfail.json"))
+    with pytest.raises(m.ApiError) as exc:
+        m.parse_json_response(payload)
+    assert "등록되지 않은 서비스키" in str(exc.value)
+    assert "[30]" in str(exc.value)
 
 
 def test_empty_response_parses_to_zero_items():
@@ -109,68 +126,116 @@ def test_empty_response_parses_to_zero_items():
 
 def test_normalize_matches_expected_schema(monkeypatch):
     src = make_source(monkeypatch)
-    items, _, _, _ = m.parse_xml_response(fixture("molit_apt_trade_page1.xml"))
-    records = src.normalize(raw_from_items(items))
+    records = src.normalize(raw_from_items(items_of("molit_apt_trade_page1.xml")))
 
     assert len(records) == 2
-    first = records[0]
-    assert first == {
+    assert records[0] == {
         "region_code": "11680",
-        "dong": "역삼동",
-        "apt_name": "개나리래미안",
-        "area_m2": 84.97,
-        "floor": 12,
-        "built_year": 2003,
-        "deal_date": "2026-08-12",
-        "price_manwon": 180000,
+        "dong": "수서동",
+        "apt_name": "까치마을",
+        "area_m2": 34.44,
+        "floor": 6,
+        "built_year": 1993,
+        "deal_date": "2026-06-20",
+        "price_manwon": 145000,
         "canceled": False,
         "canceled_date": None,
         "deal_type": "중개거래",
-        "_key": "11680|역삼동|개나리래미안|84.97|12|20260812|180000",
+        "_key": "11680|수서동|까치마을|34.44|6|20260620|145000",
         "_watch": {"canceled": False},
     }
+
+
+def test_price_string_is_parsed_to_int(monkeypatch):
+    """거래금액은 콤마가 붙은 문자열로 온다. 단위는 만원."""
+    assert m.parse_price_manwon(" 80,000") == 80000  # 앞 공백까지 방어
+    assert m.parse_price_manwon("") is None
+
+    src = make_source(monkeypatch)
+    records = src.normalize(raw_from_items(items_of("molit_apt_trade_page1.xml")))
+    assert [r["price_manwon"] for r in records] == [145000, 143000]
+    assert all(isinstance(r["price_manwon"], int) for r in records)
 
 
 def test_canceled_trade_is_kept_not_deleted(monkeypatch):
     """해제 거래를 삭제하지 말고 플래그만 붙여 보관한다."""
     src = make_source(monkeypatch)
-    items, _, _, _ = m.parse_xml_response(fixture("molit_apt_trade_page1.xml"))
-    records = src.normalize(raw_from_items(items))
+    records = src.normalize(raw_from_items(items_of("molit_apt_trade_canceled.xml")))
 
+    assert len(records) == 4  # 하나도 안 버립니다
     canceled = [r for r in records if r["canceled"]]
-    assert len(canceled) == 1
-    assert canceled[0]["apt_name"] == "타워팰리스"
-    assert canceled[0]["canceled_date"] == "2026-08-14"
+    assert len(canceled) == 2
+    assert canceled[0]["apt_name"] == "신동아"
+    # 실응답의 해제일 표기는 YY.MM.DD 입니다.
+    assert canceled[0]["canceled_date"] == "2026-07-25"
     assert canceled[0]["_watch"] == {"canceled": True}
-    # 취소분도 레코드로 남아 있어야 합니다.
-    assert len(records) == 2
 
 
-def test_missing_built_year_becomes_none(monkeypatch):
+def test_flexible_date_covers_the_real_format():
+    assert m.parse_flexible_date("26.07.25") == "2026-07-25"  # 실응답 표기
+    assert m.parse_flexible_date("2026.07.25") == "2026-07-25"
+    assert m.parse_flexible_date("20260725") == "2026-07-25"
+    assert m.parse_flexible_date(" ") is None
+    assert m.parse_flexible_date("이상한값") is None
+
+
+def test_blank_padded_tags_become_none(monkeypatch):
+    """빈 태그가 공백 한 칸(`<cdealDay> </cdealDay>`)으로 옵니다."""
     src = make_source(monkeypatch)
-    items, _, _, _ = m.parse_xml_response(fixture("molit_apt_trade_page2.xml"))
-    records = src.normalize(raw_from_items(items))
-    assert records[0]["built_year"] is None
-    assert records[0]["deal_type"] is None
+    records = src.normalize(raw_from_items(items_of("molit_apt_trade_page1.xml")))
+    assert records[0]["canceled"] is False
+    assert records[0]["canceled_date"] is None
+
+
+# ---------------------------------------------------------------------------
+# _key 충돌 — 실데이터에 실제로 있습니다
+# ---------------------------------------------------------------------------
 
 
 def test_key_collision_gets_serial_number_not_an_error(monkeypatch):
-    """같은 날 같은 단지 같은 면적·층·가격 거래가 둘 이상. 에러 아님."""
+    """같은 거래가 해제분·정상분으로 두 번 오면 `_key` 가 겹칩니다.
+
+    실응답 예: 11680 수서동 까치마을 2026-06-20 34.44㎡ 6층 145,000
+    """
     src = make_source(monkeypatch)
-    items, _, _, _ = m.parse_xml_response(fixture("molit_apt_trade_page1.xml"))
-    duplicated = [items[0], dict(items[0]), dict(items[0])]
-    records = src.normalize(raw_from_items(duplicated))
+    records = src.normalize(raw_from_items(items_of("molit_apt_trade_canceled.xml")))
 
     keys = [r["_key"] for r in records]
-    assert len(set(keys)) == 3
-    assert keys[0].endswith("|180000")
-    assert keys[1].endswith("#2")
-    assert keys[2].endswith("#3")
-    assert src.last_key_collisions == 2
+    assert len(set(keys)) == len(keys)  # 전부 고유
+    assert src.last_key_collisions == 1
+    assert sum(1 for k in keys if "#" in k) == 1
 
+    src.rolling_months = 3  # 실응답이 2026-06 이므로 윈도우를 3개월로
     result = src.validate(records, None)
-    assert result.errors == []  # 충돌은 경고일 뿐
-    assert any("_key 충돌 2건" in w for w in result.warnings)
+    assert result.errors == []  # 충돌은 에러가 아닙니다
+    assert any("_key 충돌 1건" in w for w in result.warnings)
+
+
+def test_key_assignment_does_not_depend_on_response_order(monkeypatch):
+    """응답 순서가 바뀌어도 같은 레코드에 같은 `_key` 가 붙어야 합니다.
+
+    순서에 의존하면 API 가 순서만 바꿔 줘도 canceled 가 true<->false 로
+    뒤집힌 가짜 diff 가 나고, "신고가 취소" 알림이 매일 잘못 나갑니다.
+    """
+    src = make_source(monkeypatch)
+    items = items_of("molit_apt_trade_canceled.xml")
+
+    forward = src.normalize(raw_from_items(items))
+    backward = src.normalize(raw_from_items(list(reversed(items))))
+
+    def key_of(records, *, canceled):
+        hits = [
+            r["_key"]
+            for r in records
+            if r["apt_name"] == "까치마을" and r["canceled"] is canceled
+        ]
+        assert len(hits) == 1
+        return hits[0]
+
+    assert key_of(forward, canceled=True) == key_of(backward, canceled=True)
+    assert key_of(forward, canceled=False) == key_of(backward, canceled=False)
+    # 해제분이 #2 를 받습니다 (canceled=False 가 먼저 정렬되므로).
+    assert key_of(forward, canceled=True).endswith("#2")
 
 
 def test_failed_request_items_are_skipped(monkeypatch):
@@ -188,18 +253,24 @@ def test_as_of_is_the_latest_month_queried(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 페이징 (HTTP 모킹)
+# 페이징 (HTTP 모킹 — 실제 호출은 하지 않습니다)
 # ---------------------------------------------------------------------------
 
 
 @respx.mock
 def test_pagination_collects_every_page(monkeypatch):
-    """totalCount 를 보고 끝까지 돈다. numOfRows=2, totalCount=3 -> 2페이지."""
+    """totalCount 를 보고 끝까지 돈다. numOfRows=2, totalCount=4 -> 2페이지."""
     src = make_source(monkeypatch)
+    # 실응답의 totalCount(223)를 4로 줄여 2페이지에서 끝나게 합니다.
+    def trim(name):
+        return fixture(name).replace(
+            "<totalCount>223</totalCount>", "<totalCount>4</totalCount>"
+        )
+
     route = respx.get("http://example.test/RTMSDataSvcAptTrade").mock(
         side_effect=[
-            httpx.Response(200, text=fixture("molit_apt_trade_page1.xml")),
-            httpx.Response(200, text=fixture("molit_apt_trade_page2.xml")),
+            httpx.Response(200, text=trim("molit_apt_trade_page1.xml")),
+            httpx.Response(200, text=trim("molit_apt_trade_page2.xml")),
         ]
     )
 
@@ -209,14 +280,21 @@ def test_pagination_collects_every_page(monkeypatch):
     assert fetched.partial is False
     entry = fetched.raw["requests"][0]
     assert entry["pages"] == 2
-    assert len(entry["items"]) == 3
-    assert src.raw_record_count(fetched.raw) == 3
+    assert len(entry["items"]) == 4
+    assert src.raw_record_count(fetched.raw) == 4
 
-    # 요청 파라미터도 확인 -- serviceKey 는 디코딩된 값이어야 합니다.
+    records = src.normalize(fetched.raw)
+    assert [r["apt_name"] for r in records] == [
+        "까치마을",
+        "우민",
+        "삼성동롯데아파트",
+        "한신(개포)",
+    ]
+
     q = route.calls[1].request.url.params
     assert q["pageNo"] == "2"
     assert q["LAWD_CD"] == "11680"
-    assert q["serviceKey"] == "test-decoded-key"
+    assert q["serviceKey"] == "test-decoded-key"  # 디코딩된 값
 
 
 @respx.mock
@@ -249,14 +327,6 @@ def test_fetch_raises_when_every_request_fails(monkeypatch):
         src.fetch()
 
 
-def test_fetch_fails_fast_without_a_key(monkeypatch):
-    monkeypatch.delenv("DATA_GO_KR_KEY", raising=False)
-    monkeypatch.setattr(m.storage, "load_dotenv", lambda path=None: None)
-    src = m.MolitAptTrade({"base_url": "http://example.test/x", "request_delay": 0})
-    with pytest.raises(RuntimeError, match="DATA_GO_KR_KEY"):
-        src.fetch()
-
-
 @respx.mock
 def test_empty_response_yields_no_records(monkeypatch):
     src = make_source(monkeypatch)
@@ -269,6 +339,14 @@ def test_empty_response_yields_no_records(monkeypatch):
     assert src.raw_record_count(fetched.raw) == 0
 
 
+def test_fetch_fails_fast_without_a_key(monkeypatch):
+    monkeypatch.delenv("DATA_GO_KR_KEY", raising=False)
+    monkeypatch.setattr(m.storage, "load_dotenv", lambda path=None: None)
+    src = m.MolitAptTrade({"base_url": "http://example.test/x", "request_delay": 0})
+    with pytest.raises(RuntimeError, match="DATA_GO_KR_KEY"):
+        src.fetch()
+
+
 # ---------------------------------------------------------------------------
 # series 요약
 # ---------------------------------------------------------------------------
@@ -277,11 +355,10 @@ def test_empty_response_yields_no_records(monkeypatch):
 def test_series_metrics_exclude_canceled(monkeypatch):
     """취소된 신고가가 '역대 최고가'로 잡히면 안 됩니다."""
     src = make_source(monkeypatch)
-    records = [
-        {"region_code": "11680", "price_manwon": 100000, "area_m2": 84.9, "canceled": False},
-        {"region_code": "11680", "price_manwon": 999999, "area_m2": 84.9, "canceled": True},
-    ]
+    records = src.normalize(raw_from_items(items_of("molit_apt_trade_canceled.xml")))
     metrics = src.series_metrics(records)
-    assert metrics["deal_count"] == 1
-    assert metrics["canceled_count"] == 1
-    assert metrics["overall"]["price_manwon_max"] == 100000
+
+    assert metrics["deal_count"] == 2
+    assert metrics["canceled_count"] == 2
+    # 취소분(183,500)이 빠지고 정상분 중 최고가만 남습니다.
+    assert metrics["overall"]["price_manwon_max"] == 145000

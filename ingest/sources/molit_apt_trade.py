@@ -119,9 +119,24 @@ def parse_xml_response(body: str) -> tuple[list[dict], int, str, str]:
 def parse_json_response(payload: dict) -> tuple[list[dict], int, str, str]:
     """JSON 응답 -> (items, total_count, result_code, result_msg).
 
-    [확인 필요] 이 서비스가 JSON 을 지원하는지 아직 확인 못 했습니다 (열린 질문 1).
-    지원한다면 data.go.kr 공통 형식을 따릅니다.
+    ✅ 확인됨 (2026-08-19): `_type=json` 을 붙이면 JSON 으로 응답합니다.
+    게이트웨이 레벨 에러도 JSON 으로 오는데, 이때는 봉투가 통째로 다릅니다.
+
+        {"OpenAPI_ServiceResponse": {"cmmMsgHeader": {
+            "errMsg": "SERVICE_KEY_IS_NOT_REGISTERED_ERROR",
+            "returnAuthMsg": "등록되지 않은 서비스키",
+            "returnReasonCode": "30"}}}
+
+    이 모양을 먼저 잡지 않으면 인증 실패가 '빈 응답' 으로 둔갑합니다.
     """
+    # 게이트웨이 레벨 에러 (XML 의 <cmmMsgHeader> 와 같은 것)
+    gateway = payload.get("OpenAPI_ServiceResponse")
+    if isinstance(gateway, dict):
+        header = gateway.get("cmmMsgHeader", {}) or {}
+        code = str(header.get("returnReasonCode", "")).strip()
+        msg = str(header.get("returnAuthMsg") or header.get("errMsg") or "").strip()
+        raise ApiError(f"[{code}] {msg}")
+
     resp = payload.get("response", payload)
     header = resp.get("header", {}) or {}
     code = str(header.get("resultCode", "")).strip()
@@ -147,9 +162,16 @@ def parse_json_response(payload: dict) -> tuple[list[dict], int, str, str]:
 # 필드 매핑
 # ---------------------------------------------------------------------------
 
-#: 정규화 필드 -> 원본 태그 후보.
-#: 2023년 개편으로 영문 태그(aptNm 등)가 됐지만, 서비스에 따라 구 한글 태그가
-#: 그대로 나오는 경우가 있어 둘 다 받습니다. [확인 필요] 실응답으로 확정할 것.
+#: 정규화 필드 -> 원본 태그 후보. 앞에 있는 것이 우선.
+#:
+#: ✅ 확정됨 (2026-08-19, LAWD_CD=11680 DEAL_YMD=202606 실응답):
+#:    응답 태그는 **영문 20개**입니다.
+#:      aptDong aptNm buildYear buyerGbn cdealDay cdealType dealAmount
+#:      dealDay dealMonth dealYear dealingGbn estateAgentSggNm excluUseAr
+#:      floor jibun landLeaseholdGbn rgstDate sggCd slerGbn umdNm
+#:    `roadNm`(도로명)은 **없습니다** -- 기획서 추정과 달라 제거했습니다.
+#:
+#: 한글 태그는 구 서비스(RTMSOBJSvc)의 것으로, 폴백으로만 남겨 둡니다.
 FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "region_code": ("sggCd", "지역코드"),
     "dong": ("umdNm", "법정동"),
@@ -165,8 +187,18 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "canceled_date": ("cdealDay", "해제사유발생일"),
     "deal_type": ("dealingGbn", "거래유형"),
     "jibun": ("jibun", "지번"),
-    "road_name": ("roadNm", "도로명"),
 }
+
+#: 응답에는 있지만 1단계에서 정규화하지 않는 태그.
+#: (aptDong 은 소유권 이전 등기 완료 건만 채워지고, 나머지는 당장 쓸 데가 없습니다.)
+UNUSED_TAGS = (
+    "aptDong",
+    "buyerGbn",
+    "estateAgentSggNm",
+    "landLeaseholdGbn",
+    "rgstDate",
+    "slerGbn",
+)
 
 
 def pick(item: dict, field: str) -> str:
@@ -435,29 +467,46 @@ class MolitAptTrade(Source):
         self.last_parse_failures = []
 
         records: list[dict] = []
-        seen_keys: dict[str, int] = {}
-
         for req in raw.get("requests", []):
             if not req.get("ok"):
                 continue
             fallback_region = str(req.get("region_code") or "")
             for item in req.get("items", []):
                 rec = self._normalize_item(item, fallback_region)
-                if rec is None:
-                    continue
+                if rec is not None:
+                    records.append(rec)
 
-                base_key = rec["_key"]
-                count = seen_keys.get(base_key, 0)
-                seen_keys[base_key] = count + 1
-                if count:
-                    # 같은 날 같은 단지 같은 면적/층/가격 거래가 둘 이상.
-                    # 드물지만 발생합니다. 에러가 아니라 일련번호를 붙입니다.
-                    rec["_key"] = f"{base_key}#{count + 1}"
-                    self.last_key_collisions += 1
-
-                records.append(rec)
-
+        self._resolve_key_collisions(records)
         return records
+
+    def _resolve_key_collisions(self, records: list[dict]) -> None:
+        """같은 `_key` 를 가진 레코드에 일련번호를 붙인다. 에러가 아닙니다.
+
+        ★ 붙이는 순서가 응답 순서에 의존하면 안 됩니다.
+
+        실데이터에서 확인된 경우
+        (11680 수서동 까치마을 2026-06-20 34.44㎡ 6층 145,000):
+        같은 거래가 '해제분' 과 '정상분' 으로 두 번 옵니다. 기획서의 `_key` 구성
+        요소만으로는 둘이 완전히 같아서 충돌합니다.
+
+        응답에 나온 순서대로 #2 를 붙이면, 다음 날 API 가 순서만 바꿔 줘도
+        `canceled` 가 true<->false 로 뒤집힌 것처럼 보이는 **가짜 diff** 가 납니다.
+        그러면 "신고가 취소" 알림이 매일 잘못 나갑니다.
+
+        그래서 충돌 그룹 안에서는 레코드 내용 자체를 정렬 기준으로 씁니다.
+        같은 응답이면 순서와 무관하게 항상 같은 `_key` 가 나옵니다.
+        """
+        groups: dict[str, list[dict]] = {}
+        for rec in records:
+            groups.setdefault(rec["_key"], []).append(rec)
+
+        for base_key, group in groups.items():
+            if len(group) == 1:
+                continue
+            for offset, rec in enumerate(sorted(group, key=_collision_sort_key)):
+                if offset:
+                    rec["_key"] = f"{base_key}#{offset + 1}"
+                    self.last_key_collisions += 1
 
     def _normalize_item(self, item: dict, fallback_region: str) -> dict | None:
         year = parse_int(pick(item, "deal_year"))
@@ -558,6 +607,20 @@ class MolitAptTrade(Source):
                 for code, rs in sorted(by_region.items())
             },
         }
+
+
+def _collision_sort_key(record: dict) -> tuple:
+    """`_key` 충돌 그룹 안의 정렬 기준.
+
+    `_key` 에 안 들어가는 필드들만 봅니다 (들어가는 것들은 어차피 다 같으므로).
+    완전히 동일한 레코드끼리는 순서가 바뀌어도 구별할 이유가 없습니다.
+    """
+    return (
+        bool(record.get("canceled")),
+        record.get("canceled_date") or "",
+        record.get("deal_type") or "",
+        record.get("built_year") or 0,
+    )
 
 
 def _price_stats(records: Iterable[dict]) -> dict[str, Any]:

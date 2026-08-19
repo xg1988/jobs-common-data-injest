@@ -1,0 +1,16 @@
+{
+  "updated_at": "2026-08-19T05:36:59Z",
+  "sources": {
+    "molit_apt_trade": {
+      "status": "ok",
+      "last_success": "2026-08-19T05:36:59Z",
+      "last_attempt": "2026-08-19T05:36:59Z",
+      "consecutive_failures": 0,
+      "record_count": 2813,
+      "as_of": "2026-08",
+      "schema_version": 1,
+      "quarantined_count": 0,
+      "error": null
+    }
+  }
+}

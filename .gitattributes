@@ -1,0 +1,6 @@
+# raw 는 gzip 이라 텍스트 diff 가 의미 없습니다.
+*.json.gz binary
+# 데이터 JSON 은 항상 LF 로 (윈도우에서 편집해도 커밋 노이즈가 안 나게)
+*.json text eol=lf
+*.py text eol=lf
+*.yml text eol=lf

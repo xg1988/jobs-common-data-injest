@@ -1,15 +1,19 @@
 """파일 읽기 · 쓰기 · 경로 규칙 · 봉투(envelope) 생성.
 
 경로 규칙
-    data/raw/{source}/{YYYY-MM-DD}.json         원본 (가공 전)
+    data/raw/{source}/{YYYY-MM-DD}.json.gz      원본 (가공 전, gzip)
     data/latest/{source}.json                   최신 정규화 스냅샷
     data/series/{source}.json                   시점별 요약 누적
     data/diff/{source}/{YYYY-MM-DD}.json        전일 대비 변화
     data/quarantine/{source}/{YYYY-MM-DD}.json  검사 실패분
+
+raw 만 압축합니다. 사람이 재처리할 때만 읽기 때문입니다.
+나머지는 소비자가 raw.githubusercontent.com 으로 직접 읽어야 해서 평문입니다.
 """
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 from datetime import UTC, datetime
@@ -134,11 +138,41 @@ def read_json(path: Path) -> Any | None:
         return json.load(fh)
 
 
+def write_json_gz(path: Path, payload: Any) -> Path:
+    """gzip 으로 압축해 저장한다. raw/ 전용.
+
+    실측: 하루치 원본 1,916 KB -> 91 KB (약 21배). 지역을 전국으로 늘리면
+    압축 없이는 저장소가 감당하지 못합니다.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=False) + "\n"
+    with tmp.open("wb") as raw_fh:
+        # filename="" + mtime=0 -- 내용이 같으면 바이트도 같게 만들어
+        # 헛커밋(내용은 그대로인데 gzip 헤더만 달라지는 것)을 막습니다.
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw_fh, mtime=0) as fh:
+            fh.write(text.encode("utf-8"))
+    tmp.replace(path)
+    return path
+
+
+def read_json_gz(path: Path) -> Any | None:
+    if not path.exists():
+        return None
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
 # ---- 경로 -----------------------------------------------------------------
 
 
 def raw_path(source: str, date: str) -> Path:
-    return DATA / "raw" / source / f"{date}.json"
+    """raw 는 gzip 으로 저장합니다 (사람이 재처리할 때만 읽으므로).
+
+    latest/series/diff 는 소비자가 raw.githubusercontent.com 으로 직접 읽어야
+    해서 압축하지 않습니다.
+    """
+    return DATA / "raw" / source / f"{date}.json.gz"
 
 
 def latest_path(source: str) -> Path:
@@ -165,18 +199,24 @@ def meta_path() -> Path:
 
 
 def write_raw(source: str, date: str, envelope_payload: dict) -> Path:
-    return write_json(raw_path(source, date), envelope_payload)
+    return write_json_gz(raw_path(source, date), envelope_payload)
 
 
 def read_raw(source: str, date: str) -> dict | None:
-    return read_json(raw_path(source, date))
+    gz = raw_path(source, date)
+    if gz.exists():
+        return read_json_gz(gz)
+    # 압축 도입 이전에 쌓인 파일도 계속 읽을 수 있게 둡니다.
+    return read_json(gz.with_suffix("").with_suffix(".json"))
 
 
 def list_raw_dates(source: str) -> list[str]:
     d = DATA / "raw" / source
     if not d.exists():
         return []
-    return sorted(p.stem for p in d.glob("*.json"))
+    dates = {p.name.split(".")[0] for p in d.glob("*.json.gz")}
+    dates |= {p.stem for p in d.glob("*.json")}
+    return sorted(dates)
 
 
 def write_latest(source: str, envelope_payload: dict) -> Path:

@@ -282,3 +282,24 @@ def test_dry_run_writes_nothing(tmp_storage):
     assert result.status == "ok"
     assert not storage.latest_path("fake").exists()
     assert not storage.meta_path().exists()
+
+
+def test_raw_is_stored_gzipped_and_reproducibly(tmp_storage):
+    """raw 는 gzip. 같은 내용이면 바이트도 같아야 헛커밋이 안 납니다."""
+    records = [apt(price_manwon=180000 + i) for i in range(20)]
+    pipeline.run_source(FakeSource(records), run_date="2026-08-19")
+
+    path = storage.raw_path("fake", "2026-08-19")
+    assert path.name.endswith(".json.gz")
+    assert path.exists()
+    first = path.read_bytes()
+    assert first[:2] == b"\x1f\x8b"  # gzip magic
+
+    # 읽어오면 원본 그대로
+    env = storage.read_raw("fake", "2026-08-19")
+    assert env["raw"]["items"] == records
+    assert "2026-08-19" in storage.list_raw_dates("fake")
+
+    # 같은 내용 재저장 -> 바이트 동일 (gzip 헤더에 시각이 안 박힘)
+    storage.write_raw("fake", "2026-08-19", env)
+    assert path.read_bytes() == first
