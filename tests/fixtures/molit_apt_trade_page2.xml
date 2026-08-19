@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+  <header>
+    <resultCode>000</resultCode>
+    <resultMsg>OK</resultMsg>
+  </header>
+  <body>
+    <items>
+      <item>
+        <aptNm>래미안</aptNm>
+        <buildYear></buildYear>
+        <dealAmount>250,000</dealAmount>
+        <dealDay>19</dealDay>
+        <dealMonth>8</dealMonth>
+        <dealYear>2026</dealYear>
+        <dealingGbn></dealingGbn>
+        <excluUseAr>114.53</excluUseAr>
+        <floor>7</floor>
+        <jibun>1</jibun>
+        <sggCd>11680</sggCd>
+        <umdNm>대치동</umdNm>
+        <cdealType></cdealType>
+        <cdealDay></cdealDay>
+      </item>
+    </items>
+    <numOfRows>2</numOfRows>
+    <pageNo>2</pageNo>
+    <totalCount>3</totalCount>
+  </body>
+</response>

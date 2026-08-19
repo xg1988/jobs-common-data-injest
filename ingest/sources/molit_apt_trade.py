@@ -1,0 +1,607 @@
+"""국토교통부 아파트 매매 실거래가.
+
+[확인 필요] 표시는 실제 응답으로 확인하기 전까지 남겨 둡니다.
+`python -m ingest capture --source molit_apt_trade` 로 실응답을 받아
+tests/fixtures/ 에 저장한 뒤 이 파일의 주석을 갱신하세요.
+
+성격: append형 (새 거래가 계속 신고됨).
+      단, 이미 신고된 거래가 '해제(취소)' 될 수 있어 _watch.canceled 로
+      그 변화를 changed 로 잡습니다. "신고가가 취소됐다"는 그 자체로 신호입니다.
+"""
+
+from __future__ import annotations
+
+import os
+import statistics
+import time
+import urllib.parse
+import xml.etree.ElementTree as ET
+from collections.abc import Iterable
+from datetime import date, datetime
+from typing import Any
+
+import httpx
+
+from ingest import quality, storage
+from ingest.base import FetchResult, Source, ValidationResult
+from ingest.registry import register
+
+# [확인 필요] 공공데이터포털 문서로 확정할 것.
+DEFAULT_BASE_URL = (
+    "http://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade"
+)
+
+#: data.go.kr 이 정상으로 취급하는 resultCode 값들 (서비스마다 자릿수가 다릅니다)
+OK_RESULT_CODES = {"0", "00", "000", "0000"}
+
+
+# ---------------------------------------------------------------------------
+# 인증키
+# ---------------------------------------------------------------------------
+
+
+def normalize_service_key(raw_key: str) -> str:
+    """인증키를 항상 '디코딩된' 형태로 되돌린다.
+
+    여기서 시간을 제일 많이 씁니다. 결론만 적어 둡니다.
+
+    공공데이터포털은 같은 키를 두 벌 발급합니다.
+      - Encoding 키: 이미 URL 인코딩된 문자열 (%2B, %3D 등이 보임)
+      - Decoding 키: 원본 (+, = 가 그대로 보임)
+
+    httpx 는 params= 로 넘긴 값을 **다시** URL 인코딩합니다.
+    Encoding 키를 그대로 넘기면 % 가 %25 로 한 번 더 인코딩돼
+    SERVICE_KEY_IS_NOT_REGISTERED_ERROR 가 납니다.
+
+    그래서 이 프로젝트는 **Decoding 키를 쓰는 것으로 통일**합니다.
+    사용자가 실수로 Encoding 키를 .env 에 넣어도, % 가 보이면
+    한 번 unquote 해서 Decoding 키로 되돌립니다.
+    """
+    key = (raw_key or "").strip()
+    if "%" in key:
+        return urllib.parse.unquote(key)
+    return key
+
+
+def read_service_key() -> str:
+    storage.load_dotenv()
+    key = os.environ.get("DATA_GO_KR_KEY", "")
+    if not key:
+        raise RuntimeError(
+            "DATA_GO_KR_KEY 가 없습니다. .env 에 넣거나 환경변수로 주세요. "
+            "(.env.example 참고)"
+        )
+    return normalize_service_key(key)
+
+
+# ---------------------------------------------------------------------------
+# 응답 파싱
+# ---------------------------------------------------------------------------
+
+
+class ApiError(RuntimeError):
+    """API 가 에러 응답을 준 경우 (HTTP 200 이어도)."""
+
+
+def _text(el: ET.Element | None) -> str:
+    return (el.text or "").strip() if el is not None else ""
+
+
+def parse_xml_response(body: str) -> tuple[list[dict], int, str, str]:
+    """XML 응답 -> (items, total_count, result_code, result_msg).
+
+    item 은 태그명 -> 텍스트 의 평평한 dict 로만 바꿉니다.
+    이름을 바꾸거나 타입을 바꾸지 않습니다 (raw/ 에 그대로 저장되므로).
+    """
+    root = ET.fromstring(body)
+
+    # 게이트웨이 레벨 에러: <OpenAPI_ServiceResponse><cmmMsgHeader>...
+    cmm = root.find(".//cmmMsgHeader")
+    if cmm is not None:
+        code = _text(cmm.find("returnReasonCode"))
+        msg = _text(cmm.find("returnAuthMsg")) or _text(cmm.find("errMsg"))
+        raise ApiError(f"[{code}] {msg}")
+
+    code = _text(root.find(".//resultCode"))
+    msg = _text(root.find(".//resultMsg"))
+    if code and code not in OK_RESULT_CODES:
+        raise ApiError(f"[{code}] {msg}")
+
+    items: list[dict] = []
+    for item in root.findall(".//items/item"):
+        items.append({child.tag: (child.text or "").strip() for child in item})
+
+    total_raw = _text(root.find(".//totalCount"))
+    total = int(total_raw) if total_raw.isdigit() else len(items)
+    return items, total, code, msg
+
+
+def parse_json_response(payload: dict) -> tuple[list[dict], int, str, str]:
+    """JSON 응답 -> (items, total_count, result_code, result_msg).
+
+    [확인 필요] 이 서비스가 JSON 을 지원하는지 아직 확인 못 했습니다 (열린 질문 1).
+    지원한다면 data.go.kr 공통 형식을 따릅니다.
+    """
+    resp = payload.get("response", payload)
+    header = resp.get("header", {}) or {}
+    code = str(header.get("resultCode", "")).strip()
+    msg = str(header.get("resultMsg", "")).strip()
+    if code and code not in OK_RESULT_CODES:
+        raise ApiError(f"[{code}] {msg}")
+
+    body = resp.get("body", {}) or {}
+    raw_items = body.get("items") or {}
+    if isinstance(raw_items, dict):
+        raw_items = raw_items.get("item") or []
+    if isinstance(raw_items, dict):
+        raw_items = [raw_items]
+    items = [
+        {k: ("" if v is None else str(v).strip()) for k, v in it.items()}
+        for it in raw_items
+    ]
+    total = int(body.get("totalCount") or len(items))
+    return items, total, code, msg
+
+
+# ---------------------------------------------------------------------------
+# 필드 매핑
+# ---------------------------------------------------------------------------
+
+#: 정규화 필드 -> 원본 태그 후보.
+#: 2023년 개편으로 영문 태그(aptNm 등)가 됐지만, 서비스에 따라 구 한글 태그가
+#: 그대로 나오는 경우가 있어 둘 다 받습니다. [확인 필요] 실응답으로 확정할 것.
+FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "region_code": ("sggCd", "지역코드"),
+    "dong": ("umdNm", "법정동"),
+    "apt_name": ("aptNm", "아파트"),
+    "area_m2": ("excluUseAr", "전용면적"),
+    "floor": ("floor", "층"),
+    "built_year": ("buildYear", "건축년도"),
+    "deal_year": ("dealYear", "년"),
+    "deal_month": ("dealMonth", "월"),
+    "deal_day": ("dealDay", "일"),
+    "price_manwon": ("dealAmount", "거래금액"),
+    "canceled": ("cdealType", "해제여부"),
+    "canceled_date": ("cdealDay", "해제사유발생일"),
+    "deal_type": ("dealingGbn", "거래유형"),
+    "jibun": ("jibun", "지번"),
+    "road_name": ("roadNm", "도로명"),
+}
+
+
+def pick(item: dict, field: str) -> str:
+    for tag in FIELD_ALIASES.get(field, ()):
+        if tag in item:
+            return (item[tag] or "").strip()
+    return ""
+
+
+def parse_price_manwon(value: str) -> int | None:
+    """거래금액은 문자열로 옵니다. 예: 콤마와 앞쪽 공백이 붙은 " 80,000".
+
+    콤마와 공백을 제거하고 int 로 바꿉니다. 단위는 만원입니다.
+    """
+    cleaned = (value or "").replace(",", "").replace(" ", "").strip()
+    if not cleaned:
+        return None
+    try:
+        return int(cleaned)
+    except ValueError:
+        return None
+
+
+def parse_int(value: str) -> int | None:
+    cleaned = (value or "").replace(",", "").strip()
+    if not cleaned:
+        return None
+    try:
+        return int(float(cleaned))
+    except ValueError:
+        return None
+
+
+def parse_float(value: str) -> float | None:
+    cleaned = (value or "").replace(",", "").strip()
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def parse_flexible_date(value: str) -> str | None:
+    """해제사유발생일 등. 표기가 흔들려서 [확인 필요] -- 여러 형태를 받습니다.
+
+    26.08.12 / 2026.08.12 / 20260812 / 2026-08-12  ->  2026-08-12
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    try:
+        if len(digits) == 8:
+            return date(int(digits[0:4]), int(digits[4:6]), int(digits[6:8])).isoformat()
+        if len(digits) == 6:
+            # YY.MM.DD 로 가정 (20xx 년대)
+            return date(
+                2000 + int(digits[0:2]), int(digits[2:4]), int(digits[4:6])
+            ).isoformat()
+    except ValueError:
+        return None
+    return None
+
+
+def parse_canceled(value: str) -> bool:
+    """해제여부: "O" -> true. 그 외(빈 문자열 포함) -> false."""
+    return (value or "").strip().upper() == "O"
+
+
+# ---------------------------------------------------------------------------
+# 소스
+# ---------------------------------------------------------------------------
+
+
+def month_window(months: int, today: date | None = None) -> list[str]:
+    """오늘 기준 최근 N개월. 예: 2026-08-19, 3 -> [2026-06, 2026-07, 2026-08]"""
+    today = today or date.today()
+    out: list[str] = []
+    y, m = today.year, today.month
+    for _ in range(months):
+        out.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    return sorted(out)
+
+
+@register
+class MolitAptTrade(Source):
+    name = "molit_apt_trade"
+    as_of_precision = "month"
+    schema_version = 1
+    kind = "append"
+    supports_backfill = True
+
+    def __init__(self, config: dict | None = None) -> None:
+        cfg = dict(config or {})
+        if not cfg:
+            cfg = storage.load_source_config(self.name)
+        self.config = cfg
+
+        regions_cfg = storage.load_regions_config()
+        self.regions: list[dict] = regions_cfg.get("regions", []) or []
+        self.rolling_months: int = int(regions_cfg.get("rolling_months", 3))
+
+        self.base_url: str = cfg.get("base_url") or DEFAULT_BASE_URL
+        self.response_format: str = (cfg.get("response_format") or "xml").lower()
+        self.num_of_rows: int = int(cfg.get("num_of_rows", 1000))
+        self.timeout: float = float(cfg.get("timeout_seconds", 20))
+        self.max_retries: int = int(cfg.get("max_retries", 3))
+        self.request_delay: float = float(cfg.get("request_delay", 0.2))
+        self.backfill_delay: float = float(cfg.get("backfill_delay", 1.0))
+
+        #: normalize() 가 채우는 통계. validate() 에서 읽습니다.
+        self.last_key_collisions: int = 0
+        self.last_parse_failures: list[str] = []
+        #: _fetch_months() 시작 때 한 번만 읽습니다.
+        self._service_key: str | None = None
+
+    # -- HTTP ---------------------------------------------------------------
+
+    def _request_once(
+        self, client: httpx.Client, lawd_cd: str, deal_ymd: str, page: int
+    ) -> tuple[list[dict], int]:
+        params = {
+            "serviceKey": self._service_key or read_service_key(),
+            "LAWD_CD": lawd_cd,
+            "DEAL_YMD": deal_ymd,
+            "pageNo": str(page),
+            "numOfRows": str(self.num_of_rows),
+        }
+        if self.response_format == "json":
+            params["_type"] = "json"
+
+        resp = client.get(self.base_url, params=params, timeout=self.timeout)
+        resp.raise_for_status()
+
+        if resp.text.lstrip().startswith("{"):
+            items, total, _, _ = parse_json_response(resp.json())
+        else:
+            items, total, _, _ = parse_xml_response(resp.text)
+        return items, total
+
+    def _fetch_one(
+        self, client: httpx.Client, lawd_cd: str, deal_ymd: str, delay: float
+    ) -> dict:
+        """(지역 x 계약년월) 하나를 페이징 끝까지 조회한다."""
+        items: list[dict] = []
+        total = 0
+        page = 1
+        pages = 0
+
+        while True:
+            last_error: Exception | None = None
+            for attempt in range(self.max_retries):
+                try:
+                    page_items, total = self._request_once(client, lawd_cd, deal_ymd, page)
+                    last_error = None
+                    break
+                except Exception as exc:  # noqa: BLE001 -- 재시도 대상 전부
+                    last_error = exc
+                    if attempt < self.max_retries - 1:
+                        time.sleep(2**attempt)  # 지수 백오프: 1s, 2s, 4s
+            if last_error is not None:
+                return {
+                    "region_code": lawd_cd,
+                    "deal_ymd": deal_ymd,
+                    "ok": False,
+                    "error": f"{type(last_error).__name__}: {last_error}",
+                    "total_count": None,
+                    "pages": pages,
+                    "items": items,
+                }
+
+            items.extend(page_items)
+            pages += 1
+
+            # totalCount 를 보고 끝까지 돈다. numOfRows 를 크게 잡아도
+            # 지역/월에 따라 넘칠 수 있습니다.
+            if len(items) >= total or not page_items:
+                break
+            page += 1
+            if delay:
+                time.sleep(delay)
+
+        return {
+            "region_code": lawd_cd,
+            "deal_ymd": deal_ymd,
+            "ok": True,
+            "error": None,
+            "total_count": total,
+            "pages": pages,
+            "items": items,
+        }
+
+    def _fetch_months(self, months: list[str], *, delay: float) -> FetchResult:
+        if not self.regions:
+            raise RuntimeError("config/regions.yml 에 regions 가 비어 있습니다.")
+
+        # 인증키는 여기서 한 번만 읽습니다. 없으면 24번 헛돌기 전에 바로 터집니다.
+        self._service_key = read_service_key()
+
+        requests_log: list[dict] = []
+        failures: list[str] = []
+
+        with httpx.Client(follow_redirects=True) as client:
+            for region in self.regions:
+                code = str(region["code"])
+                name = region.get("name", code)
+                for month in months:
+                    entry = self._fetch_one(client, code, month.replace("-", ""), delay)
+                    entry["region_name"] = name
+                    requests_log.append(entry)
+                    if not entry["ok"]:
+                        failures.append(f"{name} {month} 조회 실패")
+                    if delay:
+                        time.sleep(delay)
+
+        # 전부 실패했다면 '부분 수집'이 아니라 '실패'입니다.
+        # (인증키 만료, 서비스 점검, 엔드포인트 변경 같은 것들.)
+        # 여기서 예외를 던져야 meta 가 stale 이 아니라 failed 로 기록되고,
+        # 원인이 "빈 응답" 뒤에 숨지 않습니다.
+        if requests_log and len(failures) == len(requests_log):
+            first_error = next(
+                (r["error"] for r in requests_log if r.get("error")), "알 수 없음"
+            )
+            raise RuntimeError(
+                f"{len(failures)}개 요청이 전부 실패했습니다. 첫 오류: {first_error}"
+            )
+
+        raw = {
+            "endpoint": self.base_url,
+            "response_format": self.response_format,
+            "fetched_at": storage.iso_utc(),
+            "months": months,
+            "regions": [
+                {"code": str(r["code"]), "name": r.get("name", str(r["code"]))}
+                for r in self.regions
+            ],
+            "requests": requests_log,
+        }
+        return FetchResult(
+            raw=raw,
+            partial=bool(failures),
+            notes="; ".join(failures) if failures else None,
+        )
+
+    # -- Source 인터페이스 ---------------------------------------------------
+
+    def fetch(self) -> FetchResult:
+        return self._fetch_months(month_window(self.rolling_months), delay=self.request_delay)
+
+    def fetch_period(self, period: str) -> FetchResult:
+        """백필: 계약년월 하나만. 요청 사이 지연을 크게 둡니다."""
+        return self._fetch_months([period], delay=self.backfill_delay)
+
+    def as_of(self, raw: dict) -> str:
+        months = raw.get("months") or []
+        if months:
+            return max(months)
+        return datetime.now().strftime("%Y-%m")
+
+    def normalize(self, raw: dict) -> list[dict]:
+        self.last_key_collisions = 0
+        self.last_parse_failures = []
+
+        records: list[dict] = []
+        seen_keys: dict[str, int] = {}
+
+        for req in raw.get("requests", []):
+            if not req.get("ok"):
+                continue
+            fallback_region = str(req.get("region_code") or "")
+            for item in req.get("items", []):
+                rec = self._normalize_item(item, fallback_region)
+                if rec is None:
+                    continue
+
+                base_key = rec["_key"]
+                count = seen_keys.get(base_key, 0)
+                seen_keys[base_key] = count + 1
+                if count:
+                    # 같은 날 같은 단지 같은 면적/층/가격 거래가 둘 이상.
+                    # 드물지만 발생합니다. 에러가 아니라 일련번호를 붙입니다.
+                    rec["_key"] = f"{base_key}#{count + 1}"
+                    self.last_key_collisions += 1
+
+                records.append(rec)
+
+        return records
+
+    def _normalize_item(self, item: dict, fallback_region: str) -> dict | None:
+        year = parse_int(pick(item, "deal_year"))
+        month = parse_int(pick(item, "deal_month"))
+        day = parse_int(pick(item, "deal_day"))
+        price = parse_price_manwon(pick(item, "price_manwon"))
+        area = parse_float(pick(item, "area_m2"))
+        floor = parse_int(pick(item, "floor"))
+
+        if year is None or month is None or day is None:
+            self.last_parse_failures.append(f"거래일 누락: {item!r}")
+            return None
+        try:
+            deal_date = date(year, month, day).isoformat()
+        except ValueError:
+            self.last_parse_failures.append(f"거래일 파싱 실패: {item!r}")
+            return None
+
+        region_code = (pick(item, "region_code") or fallback_region)[:5]
+        dong = pick(item, "dong")
+        apt_name = pick(item, "apt_name")
+        canceled = parse_canceled(pick(item, "canceled"))
+
+        rec = {
+            "region_code": region_code,
+            "dong": dong,
+            "apt_name": apt_name,
+            "area_m2": area,
+            "floor": floor,
+            "built_year": parse_int(pick(item, "built_year")),
+            "deal_date": deal_date,
+            "price_manwon": price,
+            # 해제 거래는 삭제하지 않고 플래그만 붙여 보관합니다.
+            # 집계할 때 기본적으로 제외하는 건 소비자 몫입니다.
+            "canceled": canceled,
+            "canceled_date": parse_flexible_date(pick(item, "canceled_date")),
+            "deal_type": pick(item, "deal_type") or None,
+        }
+        rec["_key"] = "|".join(
+            [
+                region_code,
+                dong,
+                apt_name,
+                f"{area}",
+                f"{floor}",
+                deal_date.replace("-", ""),
+                f"{price}",
+            ]
+        )
+        rec["_watch"] = {"canceled": canceled}
+        return rec
+
+    # -- 품질 ---------------------------------------------------------------
+
+    def validate(
+        self, records: list[dict], previous: list[dict] | None
+    ) -> ValidationResult:
+        result = quality.run_common_checks(self, records, previous)
+        if not records:
+            return result
+
+        allowed = month_window(self.rolling_months)
+        result = result.merge(
+            quality.check_apt_trade_records(
+                records, as_of=max(allowed), allowed_months=allowed
+            )
+        )
+
+        if self.last_key_collisions:
+            # 에러가 아닙니다. 카운트만 기록합니다.
+            result.warnings.append(
+                f"_key 충돌 {self.last_key_collisions}건 (일련번호 부여)"
+            )
+        if self.last_parse_failures:
+            result.warnings.append(
+                f"거래일 파싱 실패로 버린 레코드 {len(self.last_parse_failures)}건"
+            )
+        return result
+
+    # -- series -------------------------------------------------------------
+
+    def series_metrics(self, records: list[dict]) -> dict[str, Any]:
+        """시점별 요약. 취소된 거래는 집계에서 제외합니다.
+
+        (제외하지 않으면 취소된 신고가가 "역대 최고가"로 잡힙니다.)
+        """
+        live = [r for r in records if not r.get("canceled")]
+        by_region: dict[str, list[dict]] = {}
+        for rec in live:
+            by_region.setdefault(rec.get("region_code", "?"), []).append(rec)
+
+        return {
+            "deal_count": len(live),
+            "canceled_count": len(records) - len(live),
+            "overall": _price_stats(live),
+            "by_region": {
+                code: dict({"deal_count": len(rs)}, **_price_stats(rs))
+                for code, rs in sorted(by_region.items())
+            },
+        }
+
+
+def _price_stats(records: Iterable[dict]) -> dict[str, Any]:
+    records = list(records)
+    prices = [
+        r["price_manwon"] for r in records if isinstance(r.get("price_manwon"), int)
+    ]
+    areas = [
+        float(r["area_m2"])
+        for r in records
+        if isinstance(r.get("area_m2"), (int, float))
+    ]
+    if not prices:
+        return {
+            "price_manwon_median": None,
+            "price_manwon_mean": None,
+            "price_manwon_min": None,
+            "price_manwon_max": None,
+            "area_m2_median": None,
+        }
+    return {
+        "price_manwon_median": int(statistics.median(prices)),
+        "price_manwon_mean": int(statistics.fmean(prices)),
+        "price_manwon_min": min(prices),
+        "price_manwon_max": max(prices),
+        "area_m2_median": round(statistics.median(areas), 2) if areas else None,
+    }
+
+
+def _molit_validate_backfill(
+    self: MolitAptTrade, records: list[dict], period: str
+) -> ValidationResult:
+    """백필은 조회한 월이 롤링 윈도우 밖이라 allowed_months 를 그 달로 고정합니다."""
+    result = quality.run_common_checks(self, records, None)
+    if not records:
+        return result
+    result = result.merge(
+        quality.check_apt_trade_records(records, as_of=period, allowed_months=[period])
+    )
+    if self.last_key_collisions:
+        result.warnings.append(
+            f"_key 충돌 {self.last_key_collisions}건 (일련번호 부여)"
+        )
+    return result
+
+
+MolitAptTrade.validate_backfill = _molit_validate_backfill  # type: ignore[assignment]
