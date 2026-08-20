@@ -316,6 +316,9 @@ class MolitAptTrade(Source):
         #: normalize() 가 채우는 통계. validate() 에서 읽습니다.
         self.last_key_collisions: int = 0
         self.last_parse_failures: list[str] = []
+        #: fetch() 가 채웁니다 -- 조회한 모든 달에서 0건이었던 지역.
+        #: 코드가 낡았을 가능성이 큽니다 (행정구역 개편).
+        self.last_empty_regions: list[str] = []
         #: _fetch_months() 시작 때 한 번만 읽습니다.
         self._service_key: str | None = None
 
@@ -429,6 +432,33 @@ class MolitAptTrade(Source):
             raise RuntimeError(
                 f"{len(failures)}개 요청이 전부 실패했습니다. 첫 오류: {first_error}"
             )
+
+        # ★ 조용한 0건을 잡습니다.
+        #
+        # 행정구역이 개편되면 옛 지역코드는 에러가 아니라 resultCode=000 에
+        # totalCount=0 을 돌려줍니다. "그 지역엔 거래가 없구나" 로 보여서
+        # 알아채기가 거의 불가능합니다.
+        #
+        # 2026-08 실제 사례: 광주(29)+전남(46)이 전남광주통합특별시(12)로
+        # 통합되면서 옛 코드 25개가 전부 0건이 됐습니다. 공개 행정구역
+        # 자료(2023년판)를 그대로 썼으면 월 2,630건이 통째로 빠진 채
+        # "전국 수집 완료" 로 착각했을 것입니다.
+        #
+        # 조회한 모든 달에서 한 건도 못 받은 지역은 코드를 의심해야 합니다.
+        # (아파트가 정말 없는 군 지역도 있으니 에러가 아니라 경고입니다.)
+        by_region: dict[str, dict] = {}
+        for entry in requests_log:
+            slot = by_region.setdefault(
+                entry["region_code"], {"name": entry.get("region_name"), "total": 0, "ok": 0}
+            )
+            if entry.get("ok"):
+                slot["ok"] += 1
+                slot["total"] += entry.get("total_count") or 0
+        self.last_empty_regions = [
+            f"{v['name']}({k})"
+            for k, v in sorted(by_region.items())
+            if v["ok"] and v["total"] == 0
+        ]
 
         raw = {
             "endpoint": self.base_url,
@@ -561,6 +591,18 @@ class MolitAptTrade(Source):
 
     # -- 품질 ---------------------------------------------------------------
 
+    def scope(self) -> dict:
+        """이번 수집이 조회한 범위. 지역 목록과 롤링 윈도우 길이.
+
+        지역을 8개에서 254개로 늘리면 레코드가 2,850 -> 131,000 이 됩니다.
+        이 지문이 없으면 그게 'API 가 깨졌다' 로 잡혀서 전국 전환 첫날
+        수집이 통째로 격리됩니다.
+        """
+        return {
+            "regions": sorted(str(r["code"]) for r in self.regions),
+            "rolling_months": self.rolling_months,
+        }
+
     def validate(
         self, records: list[dict], previous: list[dict] | None
     ) -> ValidationResult:
@@ -583,6 +625,17 @@ class MolitAptTrade(Source):
         if self.last_parse_failures:
             result.warnings.append(
                 f"거래일 파싱 실패로 버린 레코드 {len(self.last_parse_failures)}건"
+            )
+        if self.last_empty_regions:
+            # 에러가 아니라 경고입니다 -- 아파트가 정말 없는 군 지역도 있습니다.
+            # 다만 갑자기 늘었다면 행정구역 개편을 의심하세요.
+            result.warnings.append(
+                "조회한 모든 달에서 0건인 지역 {}개: {}{} "
+                "-- 코드가 낡았을 수 있습니다 (행정구역 개편)".format(
+                    len(self.last_empty_regions),
+                    ", ".join(self.last_empty_regions[:8]),
+                    " 외" if len(self.last_empty_regions) > 8 else "",
+                )
             )
         return result
 

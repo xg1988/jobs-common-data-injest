@@ -412,3 +412,61 @@ def test_rereport_after_cancellation_is_added_not_uncanceled(monkeypatch):
 
     assert diff["summary"] == {"added": 1, "removed": 0, "changed": 0}
     assert diff["added"][0]["record"]["canceled"] is False  # 재신고분이 added
+
+
+# ---------------------------------------------------------------------------
+# 조용한 0건 — 행정구역 개편으로 지역코드가 낡으면 이렇게 됩니다
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_stale_region_code_returns_empty_not_an_error(monkeypatch):
+    """옛 지역코드는 에러가 아니라 **0건**을 돌려줍니다.
+
+    2026-08 실제 사례: 광주(29)+전남(46)이 전남광주통합특별시(12)로
+    통합되면서 옛 코드 25개가 전부 조용히 0건이 됐습니다. 응답은
+    resultCode=000, 즉 "정상" 입니다. 이걸 못 잡으면 월 2,630건이
+    빠진 채 "전국 수집 완료" 로 보입니다.
+    """
+    src = make_source(monkeypatch)
+    src.regions = [
+        {"code": "11680", "name": "서울 강남구"},   # 살아있는 코드
+        {"code": "29110", "name": "광주 동구"},     # 폐지된 코드
+    ]
+
+    empty = fixture("molit_apt_trade_empty.xml")
+    live = fixture("molit_apt_trade_page1.xml")
+
+    def route(request):
+        code = request.url.params.get("LAWD_CD")
+        return httpx.Response(200, text=empty if code == "29110" else live)
+
+    respx.get(url__startswith="http://example.test").mock(side_effect=route)
+
+    raw = src.fetch()
+    assert src.last_empty_regions == ["광주 동구(29110)"]
+    # 강남구는 데이터가 왔으니 지목되면 안 됩니다.
+    assert not any("강남" in r for r in src.last_empty_regions)
+
+    src.rolling_months = 3
+    result = src.validate(src.normalize(raw.raw), None)
+    assert result.errors == []          # 0건 지역은 에러가 아닙니다
+    assert any("행정구역 개편" in w for w in result.warnings)
+
+
+@respx.mock
+def test_failed_request_is_not_reported_as_empty_region(monkeypatch):
+    """조회가 **실패**한 지역은 '0건 지역' 이 아닙니다.
+
+    둘을 섞으면 일시적인 네트워크 오류가 "코드가 폐지됐다" 로 둔갑해
+    멀쩡한 지역을 목록에서 지우게 됩니다.
+    """
+    src = make_source(monkeypatch)
+    src.regions = [{"code": "11680", "name": "서울 강남구"}]
+    respx.get(url__startswith="http://example.test").mock(
+        side_effect=httpx.ConnectError("일시적 오류")
+    )
+
+    with pytest.raises(RuntimeError):   # 전부 실패 = 수집 실패
+        src.fetch()
+    assert src.last_empty_regions == []

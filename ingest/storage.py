@@ -104,6 +104,7 @@ def envelope(
     collected_at: str | None = None,
     partial: bool = False,
     notes: str | None = None,
+    scope: dict | None = None,
 ) -> dict:
     return {
         "source": source,
@@ -114,6 +115,9 @@ def envelope(
         "record_count": len(records),
         "partial": partial,
         "notes": notes,
+        # 이번 수집이 무엇을 조회했는지. 다음 실행이 이걸 보고 "범위가
+        # 바뀐 것" 과 "API 가 깨진 것" 을 구분합니다.
+        "scope": scope,
         "records": records,
     }
 
@@ -219,12 +223,102 @@ def list_raw_dates(source: str) -> list[str]:
     return sorted(dates)
 
 
+#: 합본 latest 를 통째로 쓰는 상한. 넘으면 지역별 파일만 씁니다.
+#:
+#: 전국이면 합본이 약 57MB 입니다. 파일 하나로는 받을 수 있지만, **매일**
+#: 커밋하면 git 히스토리에 1년이면 20GB 가 쌓여 저장소를 못 쓰게 됩니다.
+#: 소비자도 강남구 하나 보려고 57MB 를 내려받게 됩니다.
+LATEST_INLINE_LIMIT = 40_000
+
+
+def latest_shard_dir(source: str) -> Path:
+    return DATA / "latest" / source
+
+
+def latest_shard_path(source: str, region_code: str) -> Path:
+    return latest_shard_dir(source) / f"{region_code}.json"
+
+
+def latest_index_path(source: str) -> Path:
+    return latest_shard_dir(source) / "index.json"
+
+
 def write_latest(source: str, envelope_payload: dict) -> Path:
-    return write_json(latest_path(source), envelope_payload)
+    """합본 latest 를 쓴다. 너무 크면 안 씁니다 (지역별 파일이 대신합니다).
+
+    작은 설정(서울 몇 개 구)에서는 지금까지처럼 파일 하나가 나옵니다.
+    소비자가 쓰던 경로가 그대로 살아 있어야 하기 때문입니다.
+    """
+    path = latest_path(source)
+    if envelope_payload.get("record_count", 0) > LATEST_INLINE_LIMIT:
+        # 낡은 합본이 남아 있으면 소비자가 옛 데이터를 최신인 줄 알고 읽습니다.
+        # 지우는 대신 records 를 비우고 어디로 가야 하는지 적어 둡니다.
+        return write_json(path, {
+            **{k: v for k, v in envelope_payload.items() if k != "records"},
+            "records": [],
+            "sharded": True,
+            "notes": (
+                f"레코드가 {envelope_payload['record_count']:,}건이라 합본을 만들지 않습니다. "
+                f"data/latest/{source}/index.json 을 읽고 필요한 지역 파일만 받으세요."
+            ),
+        })
+    return write_json(path, envelope_payload)
+
+
+def write_latest_shards(source: str, envelope_payload: dict) -> tuple[Path, int]:
+    """지역별 latest 파일 + 인덱스를 쓴다. (인덱스 경로, 지역 수)
+
+    소비자는 index.json 을 먼저 읽고 필요한 지역만 가져갑니다.
+    """
+    records = envelope_payload.get("records", [])
+    head = {k: v for k, v in envelope_payload.items() if k != "records"}
+
+    by_region: dict[str, list] = {}
+    for record in records:
+        by_region.setdefault(str(record.get("region_code", "unknown")), []).append(record)
+
+    d = latest_shard_dir(source)
+    d.mkdir(parents=True, exist_ok=True)
+
+    index_regions: dict[str, dict] = {}
+    for code, rows in sorted(by_region.items()):
+        path = write_json(latest_shard_path(source, code), {
+            **head, "region_code": code, "record_count": len(rows), "records": rows,
+        })
+        index_regions[code] = {"record_count": len(rows), "file": path.name}
+
+    # 이번에 0건인 지역의 낡은 파일이 남아 있으면 소비자가 옛 데이터를
+    # 최신으로 읽습니다. 인덱스에 없는 파일은 치웁니다.
+    for stale in d.glob("*.json"):
+        if stale.name != "index.json" and stale.stem not in index_regions:
+            stale.unlink()
+
+    return write_json(latest_index_path(source), {
+        **head, "regions": index_regions, "region_count": len(index_regions),
+    }), len(index_regions)
 
 
 def read_latest(source: str) -> dict | None:
-    return read_json(latest_path(source))
+    """직전 latest 를 읽는다. 지역별로 쪼개져 있으면 도로 합칩니다.
+
+    합본이 없다고 빈 레코드를 돌려주면 diff 가 매일 "전부 새로 생김" 으로
+    나옵니다. 어제와 오늘을 비교하는 게 이 파이프라인의 전부라, 여기서
+    합치지 않으면 나머지가 전부 무의미해집니다.
+    """
+    doc = read_json(latest_path(source))
+    if doc is None or not doc.get("sharded"):
+        return doc
+
+    index = read_json(latest_index_path(source))
+    if index is None:
+        return doc  # 조각이 없으면 빈 채로 -- 첫 실행처럼 다뤄집니다
+
+    records: list = []
+    for code in sorted(index.get("regions", {})):
+        shard = read_json(latest_shard_path(source, code))
+        if shard:
+            records.extend(shard.get("records", []))
+    return {**doc, "records": records, "record_count": len(records)}
 
 
 def write_diff(source: str, date: str, payload: dict) -> Path:

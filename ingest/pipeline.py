@@ -60,6 +60,28 @@ def _rel(path) -> str:
         return str(path)
 
 
+def _describe_scope_change(before: dict | None, after: dict | None) -> str:
+    """무엇이 어떻게 바뀌었는지 한 줄로.
+
+    "범위가 바뀌었습니다" 만 찍으면 로그를 봐도 뭘 확인해야 할지 모릅니다.
+    """
+    before, after = before or {}, after or {}
+    parts: list[str] = []
+    for key in sorted(set(before) | set(after)):
+        old, new = before.get(key), after.get(key)
+        if old == new:
+            continue
+        if isinstance(old, list) or isinstance(new, list):
+            old_set, new_set = set(old or []), set(new or [])
+            added, removed = len(new_set - old_set), len(old_set - new_set)
+            parts.append(
+                f"{key} {len(old_set)}->{len(new_set)}개 (+{added} -{removed})"
+            )
+        else:
+            parts.append(f"{key} {old!r}->{new!r}")
+    return ", ".join(parts) or "내용 동일"
+
+
 def _push_to_db(
     source: Source,
     *,
@@ -200,6 +222,17 @@ def run_source(
     previous_records = (previous_env or {}).get("records") or None
     previous_as_of = (previous_env or {}).get("as_of")
 
+    # 조회 범위가 지난번과 달라졌는지 먼저 봅니다.
+    # 범위를 넓히면 레코드 수가 몇 배로 뜁니다. 그걸 'API 가 깨졌다' 로
+    # 읽으면 전국 전환 첫날 수집이 통째로 격리됩니다.
+    scope = source.scope()
+    previous_scope = (previous_env or {}).get("scope")
+    source.scope_changed = bool(
+        scope is not None and previous_scope is not None and scope != previous_scope
+    )
+    if source.scope_changed:
+        log(f"[{name}] 조회 범위가 바뀌었습니다: {_describe_scope_change(previous_scope, scope)}")
+
     validation = source.validate(records, previous_records)
     validation = validation.merge(
         quality.check_as_of_regression(previous_as_of, as_of)
@@ -271,6 +304,7 @@ def run_source(
         collected_at=raw_env["collected_at"],
         partial=fetched.partial,
         notes=fetched.notes,
+        scope=scope,
     )
     result.record_count = len(records)
 
@@ -278,6 +312,13 @@ def run_source(
         path = storage.write_latest(name, latest_env)
         result.written.append(_rel(path))
         log(f"[{name}] latest 갱신 -> {_rel(path)}")
+
+        # 지역별로도 씁니다. 전국이면 합본이 57MB 라 매일 커밋할 수 없고,
+        # 소비자도 한 지역 보려고 전부 내려받게 됩니다.
+        if any("region_code" in r for r in records[:1]):
+            index_path, region_count = storage.write_latest_shards(name, latest_env)
+            result.written.append(_rel(index_path))
+            log(f"[{name}] 지역별 latest {region_count}개 -> {_rel(index_path.parent)}/")
 
         # 한 번 수집해도 기준시점이 여러 개일 수 있습니다 (롤링 윈도우).
         # 점 하나에 몰아넣으면 그래프에 가짜 급등이 생깁니다.

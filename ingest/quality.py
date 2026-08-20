@@ -65,16 +65,30 @@ def run_common_checks(
         )
 
     # 3) 레코드 수 급변
+    #
+    # 이 검사의 목적은 "API 가 조용히 깨졌는가" 입니다. 조회 범위를 우리가
+    # 직접 늘렸을 때는 레코드가 몇 배로 뛰는 게 **정상**입니다.
+    # (서울 8개 구 -> 전국 254개: 2,850 -> 131,000, +4,500%)
+    #
+    # 이걸 구분하지 않으면 전국 전환 첫날 수집이 통째로 격리되고,
+    # 로그에는 "레코드 수 급변" 이라는, 원인을 전혀 알려 주지 않는
+    # 에러만 남습니다.
     if previous:
         prev_n = len(previous)
         curr_n = len(records)
         if prev_n > 0:
             delta = (curr_n - prev_n) / prev_n
             if abs(delta) > RECORD_COUNT_CHANGE_LIMIT:
-                errors.append(
-                    f"레코드 수 급변: {prev_n} -> {curr_n} ({delta:+.1%}, "
-                    f"허용 ±{RECORD_COUNT_CHANGE_LIMIT:.0%})"
-                )
+                if getattr(source, "scope_changed", False):
+                    warnings.append(
+                        f"레코드 수 {prev_n:,} -> {curr_n:,} ({delta:+.1%}) "
+                        "-- 조회 범위가 바뀌었으니 정상입니다"
+                    )
+                else:
+                    errors.append(
+                        f"레코드 수 급변: {prev_n} -> {curr_n} ({delta:+.1%}, "
+                        f"허용 ±{RECORD_COUNT_CHANGE_LIMIT:.0%})"
+                    )
 
     return ValidationResult(
         ok=not errors, errors=errors, warnings=warnings, quarantine=quarantine

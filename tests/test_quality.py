@@ -324,3 +324,50 @@ def test_series_gets_one_point_per_as_of(tmp_storage):
     assert [p["as_of"] for p in series["points"]] == ["2026-07", "2026-08"]
     assert [p["record_count"] for p in series["points"]] == [1, 2]
     assert all(p["backfill"] is False for p in series["points"])
+
+
+# ---------------------------------------------------------------------------
+# 조회 범위 변경 — '범위를 넓힌 것' 과 'API 가 깨진 것' 은 다릅니다
+# ---------------------------------------------------------------------------
+
+
+class _Src:
+    """run_common_checks 가 보는 최소한의 소스."""
+
+    def __init__(self, scope_changed: bool = False):
+        self.scope_changed = scope_changed
+
+
+def _records(n: int) -> list[dict]:
+    return [{"_key": f"k{i}"} for i in range(n)]
+
+
+def test_record_count_spike_is_an_error_by_default():
+    """조용한 급증은 API 가 깨진 신호입니다. 잡아야 합니다."""
+    result = quality.run_common_checks(_Src(), _records(131_000), _records(2_850))
+
+    assert not result.ok
+    assert any("레코드 수 급변" in e for e in result.errors)
+
+
+def test_record_count_spike_is_fine_when_the_scope_changed():
+    """서울 8개 구 -> 전국 254개는 +4,500% 입니다. 정상입니다.
+
+    구분하지 않으면 전국 전환 첫날 수집이 통째로 격리되고, 로그에는
+    원인을 전혀 알려 주지 않는 "레코드 수 급변" 만 남습니다.
+    """
+    result = quality.run_common_checks(
+        _Src(scope_changed=True), _records(131_000), _records(2_850)
+    )
+
+    assert result.ok
+    assert result.errors == []
+    assert any("조회 범위가 바뀌었으니 정상" in w for w in result.warnings)
+
+
+def test_scope_change_does_not_excuse_an_empty_response():
+    """범위를 바꿨어도 0건이면 쓰면 안 됩니다."""
+    result = quality.run_common_checks(_Src(scope_changed=True), [], _records(2_850))
+
+    assert not result.ok
+    assert any("빈 응답" in e for e in result.errors)

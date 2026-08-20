@@ -59,6 +59,19 @@ class Source(ABC):
     def as_of(self, raw: dict) -> str:
         """데이터 기준 시점을 추출한다."""
 
+    #: pipeline 이 실행 중에 채웁니다. 조회 범위(지역 목록 등)가 지난번과
+    #: 달라졌다는 뜻입니다. 이때는 레코드 수가 크게 변하는 게 정상입니다.
+    scope_changed: bool = False
+
+    def scope(self) -> dict | None:
+        """이번 수집이 **무엇을** 조회했는지. 기본은 없음.
+
+        여기에 조회 범위를 적어 두면, 다음 실행 때 '범위가 바뀐 것' 과
+        'API 가 깨진 것' 을 구분할 수 있습니다. 둘 다 레코드 수를 크게
+        바꾸지만 대응은 정반대입니다 -- 하나는 정상, 하나는 사고입니다.
+        """
+        return None
+
     def validate(
         self, records: list[dict], previous: list[dict] | None
     ) -> ValidationResult:

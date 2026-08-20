@@ -138,6 +138,69 @@ def count(table: str, **filters: str) -> int:
         return int(content_range.rsplit("/", 1)[-1])
 
 
+def select_all(table: str, *, columns: str = "*", order: str, page_size: int = 1000, **filters: str) -> list[dict]:
+    """조건에 맞는 행을 전부 읽는다. 페이지로 나눠 받습니다.
+
+    PostgREST 는 한 번에 돌려주는 행 수에 상한이 있어(기본 1000),
+    그냥 GET 하면 **조용히 잘린 결과**를 받습니다. 아카이브에서 이건
+    치명적입니다 -- 잘린 줄 모르고 원본을 지우게 됩니다.
+
+    order 를 반드시 받는 이유도 같습니다. 정렬이 없으면 페이지 사이에
+    같은 행이 두 번 오거나 아예 빠질 수 있습니다.
+    """
+    settings = _settings()
+    if settings is None:
+        raise DbError(why_disabled())
+    url, key = settings
+
+    rows: list[dict] = []
+    with _client(url, key) as client:
+        offset = 0
+        while True:
+            resp = client.get(
+                f"/{table}",
+                params={"select": columns, "order": order, **filters},
+                headers={
+                    "Range-Unit": "items",
+                    "Range": f"{offset}-{offset + page_size - 1}",
+                    "Prefer": "count=exact",
+                },
+            )
+            if resp.status_code >= 400:
+                raise DbError(f"{table} select 실패 [{resp.status_code}] {resp.text[:300]}")
+            page = resp.json()
+            rows.extend(page)
+            total = int(resp.headers.get("content-range", "*/0").rsplit("/", 1)[-1])
+            offset += len(page)
+            if not page or offset >= total:
+                break
+
+    return rows
+
+
+def delete(table: str, **filters: str) -> int:
+    """조건에 맞는 행을 지운다. 지운 행 수를 돌려줍니다.
+
+    filters 가 비면 **거부합니다**. 실수로 테이블을 통째로 비우는
+    사고가 이 한 줄에서 갈립니다.
+    """
+    if not filters:
+        raise DbError("delete 에 조건이 없습니다. 전체 삭제는 막혀 있습니다.")
+    settings = _settings()
+    if settings is None:
+        raise DbError(why_disabled())
+    url, key = settings
+    with _client(url, key) as client:
+        resp = client.delete(
+            f"/{table}",
+            params=dict(filters),
+            headers={"Prefer": "return=representation"},
+        )
+        if resp.status_code >= 400:
+            raise DbError(f"{table} delete 실패 [{resp.status_code}] {resp.text[:300]}")
+        return len(resp.json())
+
+
 # ---------------------------------------------------------------------------
 # 이 프로젝트의 테이블
 # ---------------------------------------------------------------------------

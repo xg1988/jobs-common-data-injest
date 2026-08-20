@@ -5,6 +5,9 @@
     python -m ingest validate  --source <name>
     python -m ingest diff      --source <name> --from YYYY-MM-DD --to YYYY-MM-DD
     python -m ingest capture   --source <name>   실응답을 fixtures/ 에 저장
+    python -m ingest archive   --source <name> --hot-months 12 [--evict]
+    python -m ingest restore   --source <name> --from YYYY-MM --to YYYY-MM
+    python -m ingest query     --source <name> --from YYYY-MM --to YYYY-MM [--region]
     python -m ingest list
 
 공통 옵션: --dry-run (파일 안 씀), --verbose
@@ -322,6 +325,93 @@ def cmd_capture(args) -> int:
     return EXIT_OK
 
 
+def cmd_archive(args) -> int:
+    """오래된 달을 파일로 내보내고, --evict 면 DB 에서 비운다."""
+    from ingest import archive
+
+    log = _make_logger(True)
+    rc = EXIT_OK
+    for name in _selected_sources(args):
+        if name not in archive.TABLES:
+            print(f"[{name}] 아카이브 대상이 아닙니다. 건너뜁니다.")
+            continue
+        results = archive.run(
+            name,
+            hot_months=args.hot_months,
+            before=args.before,
+            evict=args.evict,
+            dry_run=args.dry_run,
+            log=log,
+        )
+        rows = sum(r.rows for r in results)
+        size = sum(r.bytes for r in results)
+        gone = sum(r.evicted for r in results)
+        bad = [e for r in results for e in r.errors]
+        print(
+            f"
+[{name}] {len(results)}개월 · {rows:,}행 · {size/1024/1024:.1f}MB"
+            + (f" · DB 에서 {gone:,}행 비움" if gone else "")
+        )
+        for line in bad:
+            print(f"  ERROR   {line}")
+            rc = EXIT_SOFT_FAIL
+    return rc
+
+
+def cmd_restore(args) -> int:
+    """아카이브된 달을 DB 로 되돌린다 (SQL 로 뜯어볼 때)."""
+    from ingest import query
+
+    log = _make_logger(True)
+    total = 0
+    for month in _months_between(args.from_, args.to):
+        total += query.restore(args.source, month, log=log)
+    print(f"
+되돌림: {total:,}행")
+    return EXIT_OK
+
+
+def cmd_query(args) -> int:
+    """기간으로 거래를 조회한다. DB 든 아카이브든 알아서 찾습니다."""
+    from ingest import query
+
+    result = query.fetch(
+        args.source,
+        start=args.from_,
+        end=args.to,
+        region_code=args.region,
+        include_canceled=args.include_canceled,
+    )
+
+    if args.json:
+        print(json.dumps(
+            {"rows": result.rows, "sources": result.sources, "missing": result.missing},
+            ensure_ascii=False, default=str,
+        ))
+        return EXIT_OK
+
+    # 어디서 읽었는지를 항상 보여 줍니다. 아카이브 파일이 통째로 빠져도
+    # "그 시기엔 거래가 적었나 보다" 로 넘어가지 않게.
+    by_src: dict[str, int] = {}
+    for where in result.sources.values():
+        by_src[where] = by_src.get(where, 0) + 1
+    print(f"{args.from_} ~ {args.to}"
+          + (f"  지역 {args.region}" if args.region else "")
+          + f"  ->  {len(result):,}건")
+    print("  출처: " + ", ".join(f"{k} {v}개월" for k, v in sorted(by_src.items())))
+    if result.missing:
+        print(f"  ⚠ 못 읽은 달 {len(result.missing)}개: "
+              + ", ".join(result.missing[:6]))
+    if result.empty:
+        print(f"  · 0건인 달 {len(result.empty)}개: " + ", ".join(result.empty[:6]))
+
+    if result.rows:
+        prices = sorted(r["price_manwon"] for r in result.rows)
+        mid = prices[len(prices) // 2]
+        print(f"  가격(만원)  중앙값 {mid:,}  최저 {prices[0]:,}  최고 {prices[-1]:,}")
+    return EXIT_OK if not result.missing else EXIT_SOFT_FAIL
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -366,6 +456,33 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--month", help="YYYY-MM")
     sp.add_argument("--rows", type=int, default=10)
     sp.set_defaults(func=cmd_capture)
+
+    sp = common(sub.add_parser("archive", help="오래된 달을 파일로 내보내기"))
+    sp.add_argument("--source")
+    sp.add_argument("--all", action="store_true")
+    sp.add_argument("--hot-months", type=int, default=12,
+                    help="DB 에 남겨 둘 최근 개월 수 (기본 12)")
+    sp.add_argument("--before", metavar="YYYY-MM",
+                    help="이 달보다 앞선 달을 대상으로 (--hot-months 대신)")
+    sp.add_argument("--evict", action="store_true",
+                    help="파일 검증 후 DB 에서 비웁니다. 없으면 내보내기만 합니다.")
+    sp.set_defaults(func=cmd_archive)
+
+    sp = common(sub.add_parser("restore", help="아카이브된 달을 DB 로 되돌리기"))
+    sp.add_argument("--source", required=True)
+    sp.add_argument("--from", dest="from_", required=True, metavar="YYYY-MM")
+    sp.add_argument("--to", required=True, metavar="YYYY-MM")
+    sp.set_defaults(func=cmd_restore)
+
+    sp = common(sub.add_parser("query", help="기간 조회 (DB+아카이브 자동)"))
+    sp.add_argument("--source", required=True)
+    sp.add_argument("--from", dest="from_", required=True, metavar="YYYY-MM")
+    sp.add_argument("--to", required=True, metavar="YYYY-MM")
+    sp.add_argument("--region", metavar="LAWD_CD", help="법정동코드 5자리")
+    sp.add_argument("--include-canceled", action="store_true",
+                    help="취소 거래도 포함 (기본은 제외 -- 최고가가 왜곡됩니다)")
+    sp.add_argument("--json", action="store_true", help="원본 JSON 출력")
+    sp.set_defaults(func=cmd_query)
 
     sp = common(sub.add_parser("list", help="등록된 소스 목록"))
     sp.set_defaults(func=cmd_list)
