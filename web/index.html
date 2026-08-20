@@ -102,6 +102,7 @@
       <span class="status-meta" id="statusMeta">…</span>
     </div>
     <div id="statusAlert"></div>
+    <div class="note" id="coverage">…</div>
   </div>
 
   <!-- 2. 한눈에 -->
@@ -404,10 +405,40 @@ function renderRuns(runs) {
     renderRegions(latestMonth);
     renderEvents(events);
     renderRuns(runs);
+    renderCoverage();
   } catch (e) {
     fail(String(e.message || e));
   }
 })();
+
+// ---- 담고 있는 기간 ------------------------------------------------------
+//
+// 이 화면은 DB(최근 12개월)만 읽습니다. 그보다 오래된 달은 아카이브 파일에
+// 있습니다. 이걸 안 적어 두면 2020년을 찾아보고 "그때는 거래가 없었나 보다"
+// 로 오해하게 됩니다. 없는 게 아니라 **여기서 안 보이는** 것입니다.
+async function renderCoverage() {
+  const box = document.getElementById("coverage");
+  if (!box) return;
+  const url = "https://raw.githubusercontent.com/xg1988/"
+            + `jobs-common-data-injest/main/data/archive/${SRC}/index.json`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const months = Object.keys((await r.json()).months || {}).sort();
+    if (!months.length) throw new Error("아카이브 없음");
+    const rows = months.length;
+    box.innerHTML =
+      `이 화면은 <b>DB에 있는 최근 기간</b>만 보여줍니다. `
+    + `<b>${months[0]} ~ ${months[rows-1]}</b> (${rows}개월) 은 아카이브 파일에 있습니다 — `
+    + `<code>ingest query --from ${months[0]} --to ${months[rows-1]}</code> 로 보세요.`;
+  } catch {
+    // 아카이브가 아직 없으면(전국 전환 직후) 조용히 넘어갑니다.
+    // 여기서 경고를 띄우면 정상 상태를 문제처럼 보이게 합니다.
+    box.innerHTML =
+      "이 화면은 <b>DB에 있는 최근 기간</b>만 보여줍니다. "
+    + "더 과거는 <code>ingest query</code> 로 조회하세요.";
+  }
+}
 </script>
 </body>
 </html>

@@ -23,6 +23,29 @@ info:
     실측: `2026-08` 을 8/19에 재니 148건, 8/20에 재니 163건.
     이걸 "거래 급감"으로 읽으면 틀린 기사가 나갑니다.
 
+    ## ⚠ 이 API 가 담고 있는 기간
+
+    `mkt_apt_trade` 에는 **최근 12개월**만 있습니다.
+    그보다 오래된 달은 저장소의 아카이브 파일로 옮겨집니다.
+
+    그래서 2년 전 거래를 조회하면 **0건이 돌아옵니다.** 그 시기에 거래가
+    없었던 게 아니라, 이 테이블에 없는 것입니다. 이걸 "거래 없음"으로
+    읽으면 안 됩니다.
+
+    어디까지 있는지는 아래 파일을 보면 됩니다.
+
+    ```
+    https://raw.githubusercontent.com/xg1988/jobs-common-data-injest/main/data/archive/molit_apt_trade/index.json
+    ```
+
+    과거 달은 gzip NDJSON(한 줄에 한 거래)으로 그대로 받을 수 있습니다.
+
+    ```
+    .../data/archive/molit_apt_trade/2024-03.ndjson.gz
+    ```
+
+    왜 이렇게 나눴는지는 `docs/STORAGE.md` 에 숫자와 함께 적혀 있습니다.
+
     ## 인증
 
     모든 요청에 `apikey` 헤더가 필요합니다. 아래 키는 **읽기 전용**이라
