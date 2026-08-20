@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API 문서 — jobs-common-data-injest</title>
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css">
+<style>
+  body { margin:0; background:#fafafa; }
+  .topbar-custom {
+    background:#1a1a17; color:#eceCe8; padding:14px 20px;
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+  }
+  .topbar-custom b { font-size:15px; }
+  .topbar-custom a { color:#7ba3f0; text-decoration:none; }
+  .topbar-custom a:hover { text-decoration:underline; }
+  .topbar-custom .tip { color:#9a9aa2; font-size:13px; }
+  .swagger-ui .topbar { display:none; }
+  .swagger-ui .info { margin:26px 0; }
+  #err, #fileerr {
+    display:none; margin:20px; padding:16px 18px; border-radius:8px;
+    background:#fdecea; border:1px solid #f5c6c2; color:#b3261e;
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
+  }
+  #fileerr pre {
+    background:#fff; padding:10px 12px; border-radius:6px; margin:8px 0 0;
+    font:13px ui-monospace,SFMono-Regular,Menlo,monospace; color:#1a1a17;
+  }
+  #fileerr code, #err code { background:#fff; padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<div class="topbar-custom">
+  <b>jobs-common-data-injest API</b>
+  <span class="tip">읽기 전용 키가 이미 채워져 있습니다 — <b>Try it out</b> 을 누르면 실제 데이터가 옵니다</span>
+  <a href="index.html">← 대시보드</a>
+  <a href="https://github.com/xg1988/jobs-common-data-injest" target="_blank" rel="noopener">저장소</a>
+</div>
+
+<div id="err">
+  <b>Swagger UI 를 못 불러왔습니다.</b><br>
+  CDN(unpkg.com)에서 Swagger UI 를 받아오는데 실패했습니다. 인터넷이 막힌 곳이라면
+  뜨지 않습니다. <a href="index.html">대시보드</a>는 외부 라이브러리 없이 동작하니
+  그쪽을 쓰세요.
+</div>
+
+<div id="fileerr">
+  <b>이 페이지는 웹서버로 열어야 합니다.</b><br>
+  파일을 두 번 눌러 여는 방식(<code>file://</code>)으로는 브라우저가 보안상
+  <code>openapi.yaml</code> 을 못 읽습니다.<br><br>
+  <b>이렇게 여세요</b> — <code>web/</code> 폴더에서 아래 중 하나를 실행한 뒤
+  <code>http://localhost:8000/swagger.html</code> 로 접속:
+  <pre>python -m http.server 8000
+npx serve .</pre>
+  또는 GitHub Pages 로 서빙되는 주소를 쓰세요.
+</div>
+
+<div id="swagger-ui"></div>
+
+<script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" crossorigin></script>
+<script>
+window.addEventListener("load", () => {
+  if (typeof SwaggerUIBundle === "undefined") {
+    document.getElementById("err").style.display = "block";
+    return;
+  }
+  // file:// 에서는 브라우저가 상대경로 fetch 를 막습니다.
+  if (location.protocol === "file:" || location.protocol === "data:") {
+    document.getElementById("fileerr").style.display = "block";
+    return;
+  }
+  // 읽기 전용 키. 공개돼도 안전합니다 — RLS 로 select 만 허용돼 있어
+  // 이 키로 INSERT 를 시도하면 42501 로 거부됩니다.
+  const READ_KEY = "sb_publishable_KxD30KDmxEqMP4dsNcLvTA_NMp1duPt";
+
+  const ui = SwaggerUIBundle({
+    url: "openapi.yaml",
+    dom_id: "#swagger-ui",
+    deepLinking: true,
+    tryItOutEnabled: true,          // 바로 눌러볼 수 있게
+    displayRequestDuration: true,
+    defaultModelsExpandDepth: -1,   // 하단 모델 목록은 접어 둡니다
+    docExpansion: "list",
+    filter: true,
+    persistAuthorization: true,
+    // Authorize 를 안 눌러도 키가 붙게 합니다.
+    requestInterceptor: (req) => {
+      req.headers["apikey"] = READ_KEY;
+      return req;
+    },
+    onComplete: () => ui.preauthorizeApiKey("apikey", READ_KEY),
+  });
+  window.ui = ui;
+});
+</script>
+</body>
+</html>

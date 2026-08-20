@@ -19,6 +19,8 @@
 - [docs/API.md](docs/API.md) — 소비자용 API 명세 + 상류(공공데이터) API 명세
 - [docs/SCHEDULE.md](docs/SCHEDULE.md) — 스케줄링·재시도·품질검사·알림 명세
 - [db/](db/) — Supabase 스키마와 미러 당겨오기 함수
+- [docs/DASHBOARD.md](docs/DASHBOARD.md) — 대시보드 기획 (무엇에 답하는 화면인가)
+- [web/](web/) — 대시보드와 API 문서 (Swagger)
 
 ---
 

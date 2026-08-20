@@ -1,0 +1,420 @@
+openapi: 3.0.3
+
+info:
+  title: jobs-common-data-injest — 소비자 API
+  version: "1.0.0"
+  description: |
+    공공 API에서 받은 데이터를 여러 소비자가 나눠 쓰는 계층입니다.
+    Supabase PostgREST 위에 올라가 있어, 이 문서의 "Try it out" 이 **실제 데이터**를
+    부릅니다.
+
+    ## 시작하기 전에 — 딱 세 가지
+
+    **1) `mkt_source_state` 부터 읽으세요.**
+    `status != "ok"` 또는 `partial == true` 면 그 소스를 쓰지 않습니다.
+    수집이 이상하면 옛 데이터를 그대로 두기 때문에, 숫자만 보면 멀쩡해 보입니다.
+
+    **2) 집계할 때 `canceled=is.false` 를 꼭 붙이세요.**
+    해제(취소)된 거래를 지우지 않고 플래그만 달아 보관합니다.
+    안 빼면 취소된 신고가가 "역대 최고가"로 잡힙니다. (실측 2.2%가 해제분입니다)
+
+    **3) `collected_at` 과 `as_of` 는 다릅니다.**
+    실거래가는 계약일로부터 30일 이내 신고라, 이번 달은 항상 적게 나옵니다.
+    실측: `2026-08` 을 8/19에 재니 148건, 8/20에 재니 163건.
+    이걸 "거래 급감"으로 읽으면 틀린 기사가 나갑니다.
+
+    ## 인증
+
+    모든 요청에 `apikey` 헤더가 필요합니다. 아래 키는 **읽기 전용**이라
+    공개해도 됩니다 (RLS 로 `select` 만 허용).
+
+    ```
+    apikey: sb_publishable_KxD30KDmxEqMP4dsNcLvTA_NMp1duPt
+    ```
+
+    ## 필터 문법 (PostgREST)
+
+    | 쓰는 법 | 뜻 |
+    |---|---|
+    | `region_code=eq.11680` | 같다 |
+    | `price_manwon=gte.150000` | 이상 (`gt` 초과, `lte` 이하, `lt` 미만) |
+    | `region_code=in.(11680,11650)` | 여럿 중 하나 |
+    | `apt_name=like.*래미안*` | 부분 일치 (`ilike` 는 대소문자 무시) |
+    | `canceled=is.false` | null/true/false 판정 |
+    | `deal_date=gte.2026-07-01&deal_date=lt.2026-08-01` | 범위 (조건을 두 번) |
+    | `order=price_manwon.desc` | 정렬 |
+    | `select=dong,apt_name,price_manwon` | 필요한 컬럼만 |
+    | `limit=20&offset=40` | 페이지 |
+
+    `not.` 을 앞에 붙이면 부정입니다 (`region_code=not.eq.11680`).
+
+servers:
+  - url: https://hmsyfipqrvdfitzmuaph.supabase.co/rest/v1
+    description: 운영 (읽기 전용)
+
+security:
+  - apikey: []
+
+tags:
+  - name: 상태
+    description: 데이터를 쓰기 전에 반드시 확인
+  - name: 거래
+    description: 아파트 매매 실거래가
+  - name: 변화
+    description: 무엇이 언제 바뀌었나 (알림 봇용)
+  - name: 시계열
+    description: 기준시점 × 관측일 요약
+  - name: 운영
+    description: 수집 실행 이력
+
+paths:
+  /mkt_source_state:
+    get:
+      tags: [상태]
+      summary: 소스 상태 — 제일 먼저 읽을 것
+      description: |
+        `status` 가 `ok` 가 아니면 그 소스를 쓰지 마세요.
+
+        | 값 | 뜻 |
+        |---|---|
+        | `ok` | 정상 |
+        | `stale` | 받긴 했는데 못 믿겠음 (빈 응답, 부분 수집) |
+        | `quarantined` | 값이 이상해서 반영을 막음 |
+        | `failed` | 수집 자체가 실패 |
+
+        `stale`·`quarantined` 여도 **이전 데이터는 그대로 남아 있습니다.**
+        덮어쓰지 않는 게 이 파이프라인의 원칙입니다.
+      parameters:
+        - { $ref: '#/components/parameters/select' }
+        - name: source
+          in: query
+          schema: { type: string, example: "eq.molit_apt_trade" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SourceState' }
+              example:
+                - source: molit_apt_trade
+                  status: ok
+                  last_success: "2026-08-20T01:58:44+00:00"
+                  consecutive_failures: 0
+                  record_count: 2850
+                  as_of: "2026-08"
+                  as_of_precision: month
+                  quarantined_count: 0
+                  partial: false
+                  error: null
+
+  /mkt_apt_trade:
+    get:
+      tags: [거래]
+      summary: 아파트 매매 실거래가 (현재 상태)
+      description: |
+        한 행 = 한 거래. `latest` 스냅샷에 해당합니다.
+
+        **집계할 땐 `canceled=is.false` 를 꼭 붙이세요.**
+
+        ### 자주 쓰는 조합
+
+        ```
+        # 강남구 84제곱미터대, 취소 제외, 비싼 순
+        ?region_code=eq.11680&area_m2=gte.84&area_m2=lt.85
+        &canceled=is.false&order=price_manwon.desc&limit=10
+
+        # 최근 한 달, 15억 이상
+        ?deal_date=gte.2026-07-01&price_manwon=gte.150000&canceled=is.false
+
+        # 단지 이름으로 찾기
+        ?apt_name=like.*래미안*&canceled=is.false&order=deal_date.desc
+        ```
+
+        ### `key` 에 `#2` 가 붙는 경우
+        같은 거래가 해제분·정상분으로 두 번 올 때가 있습니다 (실측 1.8%).
+        구분하려고 뒤에 일련번호를 붙입니다. 해제분이 기준 키를 갖습니다.
+      parameters:
+        - { $ref: '#/components/parameters/select' }
+        - { $ref: '#/components/parameters/order' }
+        - { $ref: '#/components/parameters/limit' }
+        - { $ref: '#/components/parameters/offset' }
+        - name: region_code
+          in: query
+          description: 법정동코드 앞 5자리. 11680 강남 / 11650 서초 / 11710 송파 / 11440 마포 / 11170 용산 / 11215 광진 / 11305 강북 / 11530 구로
+          schema: { type: string, example: "eq.11680" }
+        - name: canceled
+          in: query
+          description: "집계할 땐 is.false"
+          schema: { type: string, example: "is.false" }
+        - name: deal_date
+          in: query
+          schema: { type: string, example: "gte.2026-07-01" }
+        - name: price_manwon
+          in: query
+          description: 단위는 만원 (150000 = 15억)
+          schema: { type: string, example: "gte.150000" }
+        - name: area_m2
+          in: query
+          schema: { type: string, example: "gte.84" }
+        - name: apt_name
+          in: query
+          schema: { type: string, example: "like.*래미안*" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AptTrade' }
+              example:
+                - key: "11680|압구정동|현대14차(203,204,205,206동)|84.98|6|20260711|586000"
+                  region_code: "11680"
+                  dong: 압구정동
+                  apt_name: 현대14차(203,204,205,206동)
+                  area_m2: 84.98
+                  floor: 6
+                  built_year: 1982
+                  deal_date: "2026-07-11"
+                  price_manwon: 586000
+                  canceled: false
+                  canceled_date: null
+                  deal_type: 중개거래
+                  first_seen_at: "2026-08-19T15:10:15+00:00"
+                  last_seen_at: "2026-08-20T01:58:44+00:00"
+
+  /mkt_apt_trade_event:
+    get:
+      tags: [변화]
+      summary: 무엇이 언제 바뀌었나
+      description: |
+        알림 봇이 읽는 테이블입니다.
+
+        | `event` | 뜻 |
+        |---|---|
+        | `added` | 새로 신고됨 |
+        | `removed` | 사라짐 — **거의 안 나와야 정상** |
+        | `changed` | 값이 바뀜 (`field` 참고) |
+
+        ```
+        # 오늘 취소된 신고 (뉴스거리)
+        ?observed_on=eq.2026-08-20&event=eq.changed&field=eq.canceled&after_value=eq.true
+
+        # 오늘 새로 들어온 신고
+        ?observed_on=eq.2026-08-20&event=eq.added
+        ```
+
+        `removed` 가 전체의 5% 를 넘으면 수집 쪽에서 경고를 남깁니다
+        (조회 범위가 어긋난 신호). **행을 지우지는 않습니다** — 사라진 이유를
+        모르는 채 지우면 복구가 안 됩니다.
+      parameters:
+        - { $ref: '#/components/parameters/select' }
+        - { $ref: '#/components/parameters/order' }
+        - { $ref: '#/components/parameters/limit' }
+        - name: observed_on
+          in: query
+          schema: { type: string, example: "eq.2026-08-20" }
+        - name: event
+          in: query
+          schema: { type: string, enum: ["eq.added","eq.removed","eq.changed"] }
+        - name: field
+          in: query
+          schema: { type: string, example: "eq.canceled" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TradeEvent' }
+
+  /mkt_series_point:
+    get:
+      tags: [시계열]
+      summary: 기준시점 × 관측일 요약
+      description: |
+        **한 점 = 한 기준시점(`as_of`)을 한 날(`collected_date`)에 잰 것.**
+
+        같은 달을 여러 날에 잰 기록이 쌓이므로, 신고 지연이 얼마나 메워지는지
+        볼 수 있습니다. 이게 이 프로젝트가 만들려던 시계열입니다.
+
+        ```
+        # 월별 추이
+        ?source=eq.molit_apt_trade&order=as_of
+
+        # 2026-08 을 언제 얼마로 쟀나 (신고 지연 확인)
+        ?as_of=eq.2026-08&order=collected_date
+        ```
+
+        `metrics` 안의 수치는 **해제 거래를 뺀 값**입니다.
+      parameters:
+        - { $ref: '#/components/parameters/select' }
+        - { $ref: '#/components/parameters/order' }
+        - { $ref: '#/components/parameters/limit' }
+        - name: source
+          in: query
+          schema: { type: string, example: "eq.molit_apt_trade" }
+        - name: as_of
+          in: query
+          schema: { type: string, example: "eq.2026-08" }
+        - name: backfill
+          in: query
+          description: 과거 채우기로 만든 점인지
+          schema: { type: string, example: "is.false" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SeriesPoint' }
+
+  /mkt_collection_run:
+    get:
+      tags: [운영]
+      summary: 수집 실행 이력
+      parameters:
+        - { $ref: '#/components/parameters/select' }
+        - { $ref: '#/components/parameters/order' }
+        - { $ref: '#/components/parameters/limit' }
+        - name: run_date
+          in: query
+          schema: { type: string, example: "gte.2026-08-01" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CollectionRun' }
+
+components:
+  securitySchemes:
+    apikey:
+      type: apiKey
+      in: header
+      name: apikey
+      description: 읽기 전용 publishable 키
+
+  parameters:
+    select:
+      name: select
+      in: query
+      description: 필요한 컬럼만 (`*` 또는 콤마 구분)
+      schema: { type: string, default: "*" }
+    order:
+      name: order
+      in: query
+      schema: { type: string, example: "price_manwon.desc" }
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 20, maximum: 1000 }
+    offset:
+      name: offset
+      in: query
+      schema: { type: integer, default: 0 }
+
+  schemas:
+    SourceState:
+      type: object
+      properties:
+        source: { type: string }
+        status:
+          type: string
+          enum: [ok, stale, quarantined, failed]
+          description: "ok 가 아니면 쓰지 말 것"
+        last_success: { type: string, format: date-time, nullable: true }
+        last_attempt: { type: string, format: date-time, nullable: true }
+        consecutive_failures: { type: integer, description: "3 이상이면 알림이 나갑니다" }
+        record_count: { type: integer }
+        as_of: { type: string, nullable: true, description: "데이터 기준 시점 (YYYY-MM)" }
+        as_of_precision: { type: string, enum: [day, month, quarter], nullable: true }
+        schema_version: { type: integer, nullable: true }
+        quarantined_count: { type: integer }
+        partial: { type: boolean, description: "true 면 일부만 받은 것 — 쓰지 말 것" }
+        error: { type: string, nullable: true }
+        updated_at: { type: string, format: date-time }
+
+    AptTrade:
+      type: object
+      properties:
+        key: { type: string, description: "지역|동|단지|면적|층|거래일|가격. 충돌 시 #2" }
+        region_code: { type: string }
+        dong: { type: string }
+        apt_name: { type: string, description: "원문 유지. 표기 흔들림 통합 안 함" }
+        area_m2: { type: number, description: 전용면적 }
+        floor: { type: integer }
+        built_year: { type: integer, nullable: true }
+        deal_date: { type: string, format: date, description: 계약일 }
+        price_manwon: { type: integer, description: "★ 단위는 만원" }
+        canceled: { type: boolean, description: "★ 집계 시 제외할 것" }
+        canceled_date: { type: string, format: date, nullable: true }
+        deal_type: { type: string, nullable: true, enum: [중개거래, 직거래, null] }
+        first_seen_at: { type: string, format: date-time, description: 처음 관측 시각 }
+        last_seen_at: { type: string, format: date-time }
+
+    TradeEvent:
+      type: object
+      properties:
+        id: { type: integer }
+        observed_on: { type: string, format: date }
+        observed_at: { type: string, format: date-time }
+        event: { type: string, enum: [added, removed, changed] }
+        key: { type: string }
+        field: { type: string, nullable: true }
+        before_value: { nullable: true }
+        after_value: { nullable: true }
+        record: { type: object, nullable: true }
+
+    SeriesPoint:
+      type: object
+      properties:
+        source: { type: string }
+        as_of: { type: string, description: "기준 시점" }
+        collected_date: { type: string, format: date, description: "잰 날" }
+        collected_at: { type: string, format: date-time }
+        record_count: { type: integer }
+        partial: { type: boolean }
+        backfill: { type: boolean }
+        metrics:
+          type: object
+          description: 해제 거래를 뺀 요약
+          properties:
+            deal_count: { type: integer }
+            canceled_count: { type: integer }
+            overall:
+              type: object
+              properties:
+                price_manwon_median: { type: integer, nullable: true }
+                price_manwon_mean: { type: integer, nullable: true }
+                price_manwon_min: { type: integer, nullable: true }
+                price_manwon_max: { type: integer, nullable: true }
+                area_m2_median: { type: number, nullable: true }
+            by_region:
+              type: object
+              additionalProperties: { type: object }
+
+    CollectionRun:
+      type: object
+      properties:
+        id: { type: integer }
+        source: { type: string }
+        run_date: { type: string, format: date }
+        collected_at: { type: string, format: date-time }
+        as_of: { type: string }
+        status: { type: string }
+        record_count: { type: integer }
+        quarantined_count: { type: integer }
+        partial: { type: boolean }
+        added: { type: integer, nullable: true }
+        removed: { type: integer, nullable: true }
+        changed: { type: integer, nullable: true }
+        notes: { type: string, nullable: true }
+        errors: { type: array, items: { type: string } }
+        warnings: { type: array, items: { type: string } }

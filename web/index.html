@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공공데이터 수집 현황 — jobs-common-data-injest</title>
+<style>
+  :root {
+    --bg:#f7f7f5; --panel:#fff; --line:#e3e3de; --ink:#1a1a17; --dim:#6b6b63;
+    --ok:#1a7f4b; --warn:#a8620a; --bad:#b3261e; --accent:#2f5fd0; --accent2:#c26b1a;
+    --grid:#ececE6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#16161a; --panel:#1e1e23; --line:#31313a; --ink:#eceCe8; --dim:#9a9aa2;
+      --ok:#4ec98a; --warn:#e0a24a; --bad:#f2796f; --accent:#7ba3f0; --accent2:#e8a45c;
+      --grid:#2b2b33;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#16161a; --panel:#1e1e23; --line:#31313a; --ink:#ececE8; --dim:#9a9aa2;
+    --ok:#4ec98a; --warn:#e0a24a; --bad:#f2796f; --accent:#7ba3f0; --accent2:#e8a45c;
+    --grid:#2b2b33;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
+    padding:24px 16px 64px;
+  }
+  .wrap { max-width:1120px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 2px; letter-spacing:-.01em; }
+  h2 { font-size:15px; margin:0 0 14px; letter-spacing:-.01em; }
+  .sub { color:var(--dim); font-size:13px; margin:0 0 22px; }
+  .card {
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:18px 20px; margin-bottom:16px;
+  }
+  .row { display:grid; gap:16px; }
+  @media (min-width:820px) { .row.two { grid-template-columns:1fr 1fr; } }
+
+  /* 상태 */
+  .status { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .badge {
+    font-weight:700; font-size:13px; padding:5px 13px; border-radius:999px;
+    border:1.5px solid currentColor; letter-spacing:.02em;
+  }
+  .b-ok{color:var(--ok)} .b-warn{color:var(--warn)} .b-bad{color:var(--bad)}
+  .status-meta { color:var(--dim); font-size:13px; }
+  .status-meta b { color:var(--ink); font-weight:600; }
+  .alert {
+    margin-top:12px; padding:11px 14px; border-radius:8px; font-size:13.5px;
+    background:color-mix(in srgb, var(--bad) 10%, transparent);
+    border:1px solid color-mix(in srgb, var(--bad) 35%, transparent); color:var(--bad);
+  }
+
+  /* KPI */
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr)); gap:1px;
+          background:var(--line); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .kpi { background:var(--panel); padding:15px 16px; }
+  .kpi .k { color:var(--dim); font-size:11.5px; letter-spacing:.04em; text-transform:uppercase; }
+  .kpi .v { font-size:25px; font-weight:650; margin-top:3px; letter-spacing:-.02em;
+            font-variant-numeric:tabular-nums; }
+  .kpi .n { color:var(--dim); font-size:11.5px; margin-top:1px; }
+  .up{color:var(--ok)} .down{color:var(--bad)} .flat{color:var(--dim)}
+
+  /* 표 */
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:600; font-size:11.5px; letter-spacing:.04em;
+       text-transform:uppercase; }
+  td.num,th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  tbody tr:last-child td { border-bottom:none; }
+  .scroll { overflow-x:auto; }
+
+  .note { color:var(--dim); font-size:12.5px; margin-top:12px; line-height:1.55; }
+  .note b { color:var(--ink); }
+  svg { display:block; width:100%; height:auto; }
+  .legend { display:flex; gap:16px; font-size:12px; color:var(--dim); margin-top:10px; flex-wrap:wrap; }
+  .sw { display:inline-block; width:11px; height:11px; border-radius:2px; vertical-align:-1px; margin-right:5px; }
+  code { font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;
+         background:var(--bg); padding:1px 5px; border-radius:4px; }
+  .foot { color:var(--dim); font-size:12.5px; margin-top:26px; text-align:center; }
+  .foot a { color:var(--accent); }
+  .pill { font-size:11px; padding:2px 7px; border-radius:999px; border:1px solid var(--line);
+          color:var(--dim); }
+  .ev-added{color:var(--ok)} .ev-removed{color:var(--bad)} .ev-changed{color:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>공공데이터 수집 현황</h1>
+  <p class="sub">
+    국토교통부 아파트 매매 실거래가 · <span id="updated">불러오는 중…</span>
+  </p>
+
+  <!-- 1. 지금 써도 되나 -->
+  <div class="card">
+    <div class="status">
+      <span id="badge" class="badge b-warn">확인 중</span>
+      <span class="status-meta" id="statusMeta">…</span>
+    </div>
+    <div id="statusAlert"></div>
+  </div>
+
+  <!-- 2. 한눈에 -->
+  <div class="kpis" id="kpis"></div>
+  <div style="height:16px"></div>
+
+  <!-- 3. ★ 신고 지연 -->
+  <div class="card">
+    <h2>신고 지연 — 같은 달을 언제 쟀나</h2>
+    <div id="lagChart"></div>
+    <div class="legend" id="lagLegend"></div>
+    <p class="note">
+      실거래가는 <b>계약일로부터 30일 이내 신고</b>라, 최근 달일수록 아직 덜 들어와
+      있습니다. 선이 오른쪽으로 갈수록 올라간다면 <b>“채워지는 중”</b>이라는 뜻이지
+      거래가 늘어난 게 아닙니다. 반대로 이번 달 숫자가 적은 것도
+      <b>“거래 급감”이 아닙니다.</b>
+    </p>
+  </div>
+
+  <!-- 4. 시장 추이 -->
+  <div class="card">
+    <h2>월별 거래량과 중앙가</h2>
+    <div id="trendChart"></div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--accent)"></i>거래 건수</span>
+      <span><i class="sw" style="background:var(--accent2)"></i>중앙가</span>
+    </div>
+    <p class="note">해제(취소)된 거래는 뺀 값입니다. 안 빼면 취소된 신고가가 최고가로 잡힙니다.</p>
+  </div>
+
+  <div class="row two">
+    <div class="card">
+      <h2>지역별 <span class="pill" id="regionAsOf"></span></h2>
+      <div class="scroll"><table id="regionTable"><tbody><tr><td>불러오는 중…</td></tr></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>최근 변화</h2>
+      <div class="scroll"><table id="eventTable"><tbody><tr><td>불러오는 중…</td></tr></tbody></table></div>
+      <p class="note"><code>removed</code> 는 거의 안 나와야 정상입니다. 많이 나오면 조회 범위가 어긋난 신호입니다.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>수집 실행 이력</h2>
+    <div class="scroll"><table id="runTable"><tbody><tr><td>불러오는 중…</td></tr></tbody></table></div>
+  </div>
+
+  <p class="foot">
+    데이터 출처: 국토교통부 실거래가 (공공데이터포털) ·
+    <a href="swagger.html">API 문서</a> ·
+    <a href="https://github.com/xg1988/jobs-common-data-injest">저장소</a>
+  </p>
+</div>
+
+<script>
+const BASE = "https://hmsyfipqrvdfitzmuaph.supabase.co/rest/v1";
+const KEY  = "sb_publishable_KxD30KDmxEqMP4dsNcLvTA_NMp1duPt";  // 읽기 전용
+const SRC  = "molit_apt_trade";
+
+const $ = id => document.getElementById(id);
+const nf = n => (n ?? 0).toLocaleString("ko-KR");
+// price_manwon 은 만원 단위. 그대로 쓰면 오해하니 억으로 환산합니다.
+const eok = m => m == null ? "—" : (m / 10000).toFixed(1) + "억";
+
+async function api(path) {
+  const r = await fetch(`${BASE}/${path}`, { headers: { apikey: KEY } });
+  if (!r.ok) throw new Error(`${path} → HTTP ${r.status}`);
+  return r.json();
+}
+
+function fail(msg) {
+  $("statusAlert").innerHTML =
+    `<div class="alert"><b>대시보드가 데이터를 못 읽었습니다.</b><br>${msg}
+     <br><br>API 가 살아 있는지 확인하세요. 데이터가 없는 게 아니라
+     화면이 못 가져온 것일 수 있습니다.</div>`;
+  $("badge").textContent = "확인 불가";
+  $("badge").className = "badge b-bad";
+}
+
+// ---- 1. 상태 -------------------------------------------------------------
+function renderStatus(s) {
+  const map = { ok:["b-ok","정상"], stale:["b-warn","오래됨"],
+                quarantined:["b-warn","격리됨"], failed:["b-bad","실패"] };
+  const [cls, label] = map[s.status] || ["b-bad", s.status];
+  $("badge").className = "badge " + cls;
+  $("badge").textContent = `${label} · ${s.status}`;
+
+  const last = s.last_success ? new Date(s.last_success) : null;
+  const hours = last ? (Date.now() - last) / 36e5 : null;
+  const fresh = hours == null ? "기록 없음"
+              : hours < 1  ? "방금"
+              : hours < 48 ? `${Math.floor(hours)}시간 전`
+              : `${Math.floor(hours/24)}일 전`;
+
+  $("statusMeta").innerHTML =
+    `마지막 성공 <b>${fresh}</b> · 기준 시점 <b>${s.as_of ?? "—"}</b> · ` +
+    `레코드 <b>${nf(s.record_count)}</b>건`;
+  $("updated").textContent =
+    (last ? last.toLocaleString("ko-KR") : "—") + " 기준";
+
+  const warns = [];
+  if (s.status !== "ok")
+    warns.push(`<b>status 가 "${s.status}" 입니다. 이 데이터를 쓰지 마세요.</b>` +
+               (s.error ? `<br>사유: ${s.error}` : ""));
+  if (s.partial)
+    warns.push("<b>부분 수집입니다(partial).</b> 일부 지역·월이 빠져 있습니다.");
+  if (s.consecutive_failures >= 3)
+    warns.push(`<b>연속 ${s.consecutive_failures}회 실패 중입니다.</b>`);
+  if (hours != null && hours > 48)
+    warns.push(`<b>${Math.floor(hours/24)}일째 새 데이터가 없습니다.</b> 수집이 멈췄을 수 있습니다.`);
+
+  if (warns.length)
+    $("statusAlert").innerHTML = `<div class="alert">${warns.join("<br><br>")}</div>`;
+}
+
+// ---- 2. KPI --------------------------------------------------------------
+function renderKpis(total, canceled, ev, s) {
+  const cnt = e => ev.filter(x => x.event === e).length;
+  const day = ev.length ? ev[0].observed_on : "—";
+  const tiles = [
+    ["거래", nf(total - canceled), "해제 제외"],
+    ["해제(취소)", nf(canceled), total ? (canceled/total*100).toFixed(1)+"%" : ""],
+    ["신규 신고", `<span class="up">+${cnt("added")}</span>`, day],
+    ["사라짐", `<span class="${cnt("removed")?"down":"flat"}">-${cnt("removed")}</span>`, "0이 정상"],
+    ["값 변경", `<span class="${cnt("changed")?"ev-changed":"flat"}">~${cnt("changed")}</span>`, "취소 전환 등"],
+    ["격리", nf(s.quarantined_count), s.quarantined_count ? "확인 필요" : "이상 없음"],
+  ];
+  $("kpis").innerHTML = tiles.map(([k,v,n]) =>
+    `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`
+  ).join("");
+}
+
+// ---- 3. 신고 지연 --------------------------------------------------------
+function renderLag(points) {
+  // 같은 as_of 를 두 번 이상 잰 달만 의미가 있습니다.
+  const byMonth = {};
+  points.forEach(p => (byMonth[p.as_of] ||= []).push(p));
+  const months = Object.keys(byMonth).filter(m => byMonth[m].length > 1).sort().slice(-4);
+
+  if (!months.length) {
+    $("lagChart").innerHTML =
+      `<p class="note">아직 같은 달을 두 번 이상 잰 기록이 없습니다.
+       내일 수집이 한 번 더 돌면 여기에 선이 그려집니다.</p>`;
+    return;
+  }
+
+  const W=880, H=260, P={t:16,r:16,b:34,l:56};
+  const dates = [...new Set(months.flatMap(m => byMonth[m].map(p=>p.collected_date)))].sort();
+  const maxV = Math.max(...months.flatMap(m => byMonth[m].map(p=>p.record_count))) * 1.12;
+  const x = i => P.l + (dates.length<2 ? (W-P.l-P.r)/2 : i*(W-P.l-P.r)/(dates.length-1));
+  const y = v => H-P.b - (v/maxV)*(H-P.t-P.b);
+  const colors = ["var(--accent)","var(--accent2)","var(--ok)","var(--bad)"];
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="같은 기준월을 여러 날에 측정한 레코드 수">`;
+  for (let g=0; g<=4; g++) {
+    const v = maxV*g/4, yy = y(v);
+    svg += `<line x1="${P.l}" y1="${yy}" x2="${W-P.r}" y2="${yy}" stroke="var(--grid)"/>`
+         + `<text x="${P.l-8}" y="${yy+4}" text-anchor="end" font-size="11" fill="var(--dim)">${Math.round(v).toLocaleString()}</text>`;
+  }
+  dates.forEach((d,i) =>
+    svg += `<text x="${x(i)}" y="${H-12}" text-anchor="middle" font-size="11" fill="var(--dim)">${d.slice(5)}</text>`);
+
+  months.forEach((m,mi) => {
+    const pts = byMonth[m].sort((a,b)=>a.collected_date.localeCompare(b.collected_date));
+    const d = pts.map(p => `${x(dates.indexOf(p.collected_date))},${y(p.record_count)}`).join(" ");
+    svg += `<polyline points="${d}" fill="none" stroke="${colors[mi%4]}" stroke-width="2.5"
+            stroke-linejoin="round" stroke-linecap="round"/>`;
+    pts.forEach(p => svg += `<circle cx="${x(dates.indexOf(p.collected_date))}" cy="${y(p.record_count)}"
+            r="4" fill="${colors[mi%4]}"><title>${m} · ${p.collected_date} · ${nf(p.record_count)}건</title></circle>`);
+  });
+  svg += `</svg>`;
+  $("lagChart").innerHTML = svg;
+  $("lagLegend").innerHTML = months.map((m,i) =>
+    `<span><i class="sw" style="background:${colors[i%4]}"></i>${m} 계약분</span>`).join("");
+}
+
+// ---- 4. 월별 추이 --------------------------------------------------------
+function renderTrend(points) {
+  // 각 as_of 의 "가장 최근에 잰 값"만 씁니다.
+  const latest = {};
+  points.forEach(p => {
+    if (!latest[p.as_of] || p.collected_date > latest[p.as_of].collected_date) latest[p.as_of] = p;
+  });
+  const rows = Object.values(latest).sort((a,b)=>a.as_of.localeCompare(b.as_of)).slice(-18);
+  if (!rows.length) { $("trendChart").innerHTML = `<p class="note">데이터 없음</p>`; return; }
+
+  const W=880, H=270, P={t:16,r:56,b:34,l:56};
+  const cnts = rows.map(r => r.metrics?.deal_count ?? r.record_count);
+  const meds = rows.map(r => r.metrics?.overall?.price_manwon_median ?? null);
+  const maxC = Math.max(...cnts)*1.15;
+  const okMed = meds.filter(v=>v!=null);
+  const maxM = okMed.length ? Math.max(...okMed)*1.15 : 1;
+  const bw = (W-P.l-P.r)/rows.length;
+  const yC = v => H-P.b - (v/maxC)*(H-P.t-P.b);
+  const yM = v => H-P.b - (v/maxM)*(H-P.t-P.b);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="월별 거래량과 중앙가">`;
+  for (let g=0; g<=4; g++) {
+    const yy = P.t + g*(H-P.t-P.b)/4;
+    svg += `<line x1="${P.l}" y1="${yy}" x2="${W-P.r}" y2="${yy}" stroke="var(--grid)"/>`;
+  }
+  rows.forEach((r,i) => {
+    const c = cnts[i], h = (H-P.b) - yC(c);
+    svg += `<rect x="${P.l+i*bw+bw*0.18}" y="${yC(c)}" width="${bw*0.64}" height="${Math.max(h,1)}"
+            fill="var(--accent)" opacity=".72" rx="2"><title>${r.as_of} · ${nf(c)}건</title></rect>`;
+    if (i % Math.ceil(rows.length/9) === 0)
+      svg += `<text x="${P.l+i*bw+bw/2}" y="${H-12}" text-anchor="middle" font-size="10.5" fill="var(--dim)">${r.as_of.slice(2)}</text>`;
+  });
+  const line = rows.map((r,i)=> meds[i]==null ? null : `${P.l+i*bw+bw/2},${yM(meds[i])}`).filter(Boolean).join(" ");
+  if (line) svg += `<polyline points="${line}" fill="none" stroke="var(--accent2)" stroke-width="2.5"
+                    stroke-linejoin="round"/>`;
+  rows.forEach((r,i)=> meds[i]!=null &&
+    (svg += `<circle cx="${P.l+i*bw+bw/2}" cy="${yM(meds[i])}" r="3" fill="var(--accent2)">
+             <title>${r.as_of} · 중앙가 ${eok(meds[i])}</title></circle>`));
+  svg += `<text x="${P.l-8}" y="${P.t+10}" text-anchor="end" font-size="11" fill="var(--dim)">${nf(Math.round(maxC))}</text>`;
+  svg += `<text x="${W-P.r+8}" y="${P.t+10}" font-size="11" fill="var(--dim)">${eok(maxM)}</text>`;
+  svg += `</svg>`;
+  $("trendChart").innerHTML = svg;
+}
+
+// ---- 5. 지역별 -----------------------------------------------------------
+const REGION = {
+  "11680":"강남구","11650":"서초구","11710":"송파구","11440":"마포구",
+  "11170":"용산구","11215":"광진구","11305":"강북구","11530":"구로구",
+};
+function renderRegions(point) {
+  const by = point?.metrics?.by_region;
+  $("regionAsOf").textContent = point ? point.as_of + " 계약분" : "";
+  if (!by) { $("regionTable").innerHTML = `<tbody><tr><td>데이터 없음</td></tr></tbody>`; return; }
+  const rows = Object.entries(by)
+    .map(([code,m]) => ({ code, name: REGION[code] ?? code, ...m }))
+    .sort((a,b)=>b.deal_count-a.deal_count);
+  $("regionTable").innerHTML =
+    `<thead><tr><th>지역</th><th class="num">거래</th><th class="num">중앙가</th><th class="num">최고가</th></tr></thead>
+     <tbody>${rows.map(r=>`<tr><td>${r.name}</td><td class="num">${nf(r.deal_count)}</td>
+       <td class="num">${eok(r.price_manwon_median)}</td>
+       <td class="num">${eok(r.price_manwon_max)}</td></tr>`).join("")}</tbody>`;
+}
+
+// ---- 6. 최근 변화 --------------------------------------------------------
+function renderEvents(ev) {
+  if (!ev.length) { $("eventTable").innerHTML = `<tbody><tr><td>변화 없음</td></tr></tbody>`; return; }
+  const label = { added:"신규", removed:"사라짐", changed:"변경" };
+  $("eventTable").innerHTML =
+    `<thead><tr><th>날짜</th><th>구분</th><th>거래</th></tr></thead><tbody>` +
+    ev.slice(0,12).map(e => {
+      const p = e.key.split("|");   // 지역|동|단지|면적|층|거래일|가격
+      const desc = p.length >= 7
+        ? `${p[1]} ${p[2]} <span style="color:var(--dim)">${p[3]}㎡ ${p[4]}층 ${eok(+p[6].replace(/#.*/,""))}</span>`
+        : e.key;
+      const extra = e.event === "changed" && e.field
+        ? ` <span class="pill">${e.field} ${JSON.stringify(e.before_value)}→${JSON.stringify(e.after_value)}</span>` : "";
+      return `<tr><td>${e.observed_on.slice(5)}</td>
+              <td class="ev-${e.event}">${label[e.event] ?? e.event}</td>
+              <td>${desc}${extra}</td></tr>`;
+    }).join("") + `</tbody>`;
+}
+
+// ---- 7. 실행 이력 --------------------------------------------------------
+function renderRuns(runs) {
+  if (!runs.length) { $("runTable").innerHTML = `<tbody><tr><td>기록 없음</td></tr></tbody>`; return; }
+  $("runTable").innerHTML =
+    `<thead><tr><th>실행일</th><th>상태</th><th class="num">레코드</th>
+      <th class="num">+</th><th class="num">-</th><th class="num">~</th><th>비고</th></tr></thead><tbody>` +
+    runs.map(r => `<tr>
+      <td>${r.run_date}</td>
+      <td class="${r.status==="ok"?"up":"down"}">${r.status}</td>
+      <td class="num">${nf(r.record_count)}</td>
+      <td class="num up">${r.added ?? "—"}</td>
+      <td class="num ${r.removed?"down":"flat"}">${r.removed ?? "—"}</td>
+      <td class="num ${r.changed?"ev-changed":"flat"}">${r.changed ?? "—"}</td>
+      <td style="color:var(--dim)">${r.notes ?? ""}</td></tr>`).join("") + `</tbody>`;
+}
+
+// ---- 시작 ----------------------------------------------------------------
+(async () => {
+  try {
+    const [state, series, events, runs, totalR, cancelR] = await Promise.all([
+      api(`mkt_source_state?source=eq.${SRC}&select=*`),
+      api(`mkt_series_point?source=eq.${SRC}&select=*&order=as_of,collected_date`),
+      api(`mkt_apt_trade_event?select=*&order=observed_on.desc,id.desc&limit=60`),
+      api(`mkt_collection_run?source=eq.${SRC}&select=*&order=run_date.desc,id.desc&limit=10`),
+      fetch(`${BASE}/mkt_apt_trade?select=key`,
+            {headers:{apikey:KEY, Prefer:"count=exact", Range:"0-0"}}),
+      fetch(`${BASE}/mkt_apt_trade?select=key&canceled=is.true`,
+            {headers:{apikey:KEY, Prefer:"count=exact", Range:"0-0"}}),
+    ]);
+    const cnt = r => +(r.headers.get("content-range") || "*/0").split("/").pop();
+    const total = cnt(totalR), canceled = cnt(cancelR);
+
+    if (!state.length) return fail("mkt_source_state 에 소스가 없습니다.");
+    renderStatus(state[0]);
+    renderKpis(total, canceled, events, state[0]);
+    renderLag(series);
+    renderTrend(series);
+
+    // 지역별은 가장 최근에 잰 최신 기준월을 보여줍니다.
+    const latestMonth = series.length ? series.reduce((a,b) =>
+      (b.as_of > a.as_of || (b.as_of === a.as_of && b.collected_date > a.collected_date)) ? b : a) : null;
+    renderRegions(latestMonth);
+    renderEvents(events);
+    renderRuns(runs);
+  } catch (e) {
+    fail(String(e.message || e));
+  }
+})();
+</script>
+</body>
+</html>
