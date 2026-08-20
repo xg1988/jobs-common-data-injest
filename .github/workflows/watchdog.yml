@@ -1,0 +1,64 @@
+name: watchdog
+
+# 수집이 멈추거나 상태가 나빠지면 알아채는 역할.
+#
+# 수집 자체는 GitHub 에서 못 합니다 (러너에서 apis.data.go.kr 연결이 막힘).
+# 하지만 감시는 됩니다 -- 저장소의 meta.json 만 읽으면 되니까요.
+#
+# 문제가 있으면 이 워크플로가 실패하고, GitHub 이 저장소 주인에게 메일을 보냅니다.
+
+on:
+  schedule:
+    - cron: "0 2 * * *"      # 매일 11:00 KST -- 수집(00:10)보다 한참 뒤
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 상태 점검
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          from datetime import datetime, timezone, timedelta
+
+          meta = json.load(open("meta.json", encoding="utf-8"))
+          problems = []
+
+          for name, s in meta.get("sources", {}).items():
+              status = s.get("status")
+              fails  = s.get("consecutive_failures") or 0
+              last   = s.get("last_success")
+
+              if status != "ok":
+                  problems.append(
+                      f"{name}: status={status} (연속실패 {fails})\n"
+                      f"         {s.get('error') or ''}")
+
+              if fails >= 3:
+                  problems.append(f"{name}: 연속 {fails}회 실패")
+
+              if last:
+                  age = datetime.now(timezone.utc) - datetime.fromisoformat(
+                      last.replace("Z", "+00:00"))
+                  print(f"{name}: 마지막 성공 {age.total_seconds()/3600:.1f}시간 전")
+                  # 하루에 한 번 도니, 이틀 넘게 못 받으면 멈춘 것입니다.
+                  if age > timedelta(days=2):
+                      problems.append(
+                          f"{name}: {age.days}일째 수집 성공 없음 (마지막 {last})")
+              else:
+                  problems.append(f"{name}: 성공한 적이 없음")
+
+          if problems:
+              print("\n=== 문제 ===")
+              for p in problems:
+                  print(" -", p)
+                  print(f"::error title=수집 이상::{p.splitlines()[0]}")
+              print("\nVPS 로그를 보세요:")
+              print("  ssh cmn-vps 'tail -50 /opt/jobs-common-data-injest/logs/daily-*.log'")
+              sys.exit(1)
+
+          print("\n이상 없음")
+          PY

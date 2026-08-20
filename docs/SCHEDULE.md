@@ -43,18 +43,39 @@
 |---|---|
 | 트리거 | `pg_cron`: `40 15 * * *` (UTC) = **매일 00:40 KST** |
 | 함수 | `public.mkt_pull_from_mirror()` |
-| 읽는 곳 | `raw.githubusercontent.com/.../main` (공개) |
+| 읽는 곳 | `raw.githubusercontent.com/.../{커밋 SHA}` (공개) |
 | 인증 | 없음 |
 
-30분 여유를 둔 이유는 `raw.githubusercontent.com` 캐시가 몇 분 걸리기 때문입니다.
+30분 여유를 둔 이유는 GitHub CDN 캐시가 몇 분 걸리기 때문입니다.
 
-`meta.json` 의 `status` 가 `ok` 가 아니면 **거래 데이터를 건드리지 않습니다.**
+**⚠️ `main` 이 아니라 커밋 SHA 로 받습니다.**
+`raw.githubusercontent.com` 은 파일마다 따로 캐시해서, `main` 으로 받으면
+`meta.json` 은 새 것인데 `latest` 는 옛 것이 오는 일이 생깁니다.
+2026-08-20 에 실제로 겪었습니다 — meta 2,850건 / latest 2,813건.
+섞인 채로 들어가면 diff 가 틀어지고 소비자가 잘못된 걸 읽습니다.
+
+그래서 먼저 GitHub API 로 최신 커밋 SHA 를 받고, 그 SHA 가 붙은 주소에서
+파일들을 받습니다. SHA 주소는 내용이 안 바뀌므로 한 커밋의 파일이 항상 같이
+옵니다. 그러고도 `meta.record_count` 와 `latest.record_count` 를 한 번 더
+대조해서, 어긋나면 **아무것도 쓰지 않고 중단**합니다.
+
+`meta.json` 의 `status` 가 `ok` 가 아니어도 **거래 데이터를 건드리지 않습니다.**
 파일 쪽에서 `latest` 를 안 덮어썼다는 뜻이고, DB 도 똑같이 굽니다.
 
 수동 실행:
 
 ```sql
 select * from public.mkt_pull_from_mirror();
+```
+
+```
+step                     rows_affected
+commit dd37f2f                       0
+source_state (ok)                    1
+apt_trade                         2850
+series_point                        35
+events                              39
+collection_run                       1
 ```
 
 ### 왜 00:10 KST 인가
@@ -198,11 +219,27 @@ tail -50 /opt/jobs-common-data-injest/logs/daily-$(date +%Y-%m-%d).log
 ```
 
 연속 실패 횟수는 `meta.json` 의 `consecutive_failures` 이고, 성공하면 0 으로
-돌아갑니다. 커밋이 계속 올라오므로 저장소 커밋 이력만 봐도 상태를 알 수 있습니다.
+돌아갑니다.
 
-> **아직 안 된 것**: 실패를 사람에게 밀어주는 알림(메일·슬랙 등)이 없습니다.
-> 지금은 저장소 커밋이 끊기거나 `mkt_source_state.status` 가 `ok` 가 아닌 걸로
-> 알아채야 합니다.
+### 감시견 (GitHub Actions)
+
+수집은 GitHub 에서 못 하지만 **감시는 됩니다** — 저장소의 `meta.json` 만
+읽으면 되니까요.
+
+| 항목 | 값 |
+|---|---|
+| 워크플로 | `.github/workflows/watchdog.yml` |
+| cron | `0 2 * * *` (UTC) = **매일 11:00 KST** |
+
+이 중 하나라도 걸리면 워크플로가 실패하고, **GitHub 이 저장소 주인에게 메일을
+보냅니다.**
+
+- `status != "ok"`
+- `consecutive_failures >= 3`
+- 마지막 성공이 **2일** 넘게 없음 (하루 한 번 도니 이틀이면 멈춘 것)
+
+VPS 가 통째로 죽어도 커밋이 안 올라오니 세 번째 조건에 걸립니다.
+즉 **VPS 장애도 잡힙니다.**
 
 ---
 
