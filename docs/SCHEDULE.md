@@ -4,15 +4,58 @@
 
 ---
 
-## 1. 일일 수집
+## 0. 전체 그림
+
+하루에 두 번 돕니다. 서로 다른 곳에서.
+
+```
+00:10 KST   VPS cron          수집 → 파일 저장 → GitHub 에 커밋·푸시
+00:40 KST   Supabase pg_cron  공개 미러에서 스스로 당겨와 DB 갱신
+```
+
+**왜 나눴나.** 수집은 GitHub 러너에서 못 합니다 (10장). VPS 가 DB 로 직접
+밀어 넣으려면 관리자 키를 VPS 에 둬야 하는데, DB 가 **당겨오는** 방식이면
+그 키가 아무 데도 필요 없습니다. 미러가 공개 저장소라 인증 없이 읽힙니다.
+
+---
+
+## 1. 일일 수집 (VPS)
 
 | 항목 | 값 |
 |---|---|
-| 트리거 | GitHub Actions `schedule` + `workflow_dispatch` |
-| cron | `10 15 * * *` (UTC) = **매일 00:10 KST** |
-| 워크플로 | `.github/workflows/collect.yml` |
+| 어디서 | VPS `cmn-vps` (`/opt/jobs-common-data-injest`) |
+| 트리거 | `crontab`: `10 15 * * *` (UTC) = **매일 00:10 KST** |
+| 스크립트 | `scripts/daily.sh` |
 | 명령 | `python -m ingest run --all --verbose` |
-| 동시 실행 | `concurrency: collect` — 겹치면 뒤엣것이 기다립니다 |
+| 로그 | `logs/daily-{YYYY-MM-DD}.log` (저장소에 안 올라감) |
+
+`daily.sh` 가 하는 일:
+
+1. `git pull --rebase --autostash` — 남이 고친 코드를 받습니다
+2. 수집
+3. `data/` 와 `meta.json` 을 커밋하고 푸시 — **수집이 실패해도 합니다.**
+   `raw/` 와 `meta.json` 이 남아야 나중에 원인을 봅니다
+4. 수집 종료 코드를 그대로 반환 — cron 이 실패를 알립니다
+
+### DB 당겨오기 (Supabase)
+
+| 항목 | 값 |
+|---|---|
+| 트리거 | `pg_cron`: `40 15 * * *` (UTC) = **매일 00:40 KST** |
+| 함수 | `public.mkt_pull_from_mirror()` |
+| 읽는 곳 | `raw.githubusercontent.com/.../main` (공개) |
+| 인증 | 없음 |
+
+30분 여유를 둔 이유는 `raw.githubusercontent.com` 캐시가 몇 분 걸리기 때문입니다.
+
+`meta.json` 의 `status` 가 `ok` 가 아니면 **거래 데이터를 건드리지 않습니다.**
+파일 쪽에서 `latest` 를 안 덮어썼다는 뜻이고, DB 도 똑같이 굽니다.
+
+수동 실행:
+
+```sql
+select * from public.mkt_pull_from_mirror();
+```
 
 ### 왜 00:10 KST 인가
 
@@ -71,9 +114,10 @@ UTC 로 찍으면 전날 날짜가 붙습니다.
 7. latest/ 덮어쓰기
 8. series/ append              기준시점마다 점 하나씩
 9. diff/ 저장                  변화 없으면 파일 안 만듦
-9-b. DB 로 push                실패해도 죽지 않음 (아래 4장)
 10. meta.json 갱신
-11. git commit & push          변경 없으면 커밋 안 함
+11. git commit & push          daily.sh 가 담당. 변경 없으면 커밋 안 함
+
+(DB 는 30분 뒤 Supabase 가 이 결과를 당겨갑니다 -- 0장)
 ```
 
 **5번이 이 설계의 핵심입니다.** API 가 이상한 값을 줬을 때 `latest` 를 덮어쓰면,
@@ -116,49 +160,64 @@ UTC 로 찍으면 전날 날짜가 붙습니다.
 
 ## 4. 저장 대상과 실패 처리
 
-| 대상 | 실패하면 |
-|---|---|
-| 파일 (`data/`, `meta.json`) | 파이프라인 중단 |
-| DB (Supabase) | **경고만 남기고 계속** |
+| 대상 | 언제 | 실패하면 |
+|---|---|---|
+| 파일 (`data/`, `meta.json`) | 수집 직후 | 파이프라인 중단 |
+| GitHub 푸시 | 수집 직후 | 다음 회차에 재시도 |
+| DB (Supabase) | 30분 뒤 당겨감 | 다음 회차에 재시도 |
 
-DB 쓰기 실패로 예외를 던지면, 멀쩡히 받은 데이터까지 버리게 됩니다.
-파일은 이미 저장돼 커밋되므로 나중에 복구할 수 있습니다.
+DB 가 하루 못 따라와도 데이터는 안 잃습니다. 미러가 진실이고, 다음 날
+당겨올 때 그동안의 변화가 한꺼번에 반영됩니다 (upsert 라 여러 번 돌려도
+결과가 같습니다).
 
-```bash
-python -m ingest sync --all     # 저장된 파일 → DB (API 호출 없음)
+수동으로 지금 당장 맞추려면:
+
+```sql
+select * from public.mkt_pull_from_mirror();   -- DB 에서
 ```
 
-`sync` 는 여러 번 돌려도 결과가 같습니다 (upsert).
+```bash
+python -m ingest sync --all     # 또는 VPS 에서 (SUPABASE_* 환경변수 필요)
+```
 
 ---
 
 ## 5. 실패 알림
 
-| 종료 코드 | 뜻 | Actions |
-|---|---|---|
-| `0` | 전부 ok | 성공 |
-| `1` | 일부 실패 (stale/quarantined 포함) | 커밋은 진행, `::warning` |
-| `2` | **연속 3회 이상 실패** | 워크플로 실패 → GitHub 알림 |
+| 종료 코드 | 뜻 |
+|---|---|
+| `0` | 전부 ok |
+| `1` | 일부 실패 (stale/quarantined 포함). 커밋은 진행 |
+| `2` | **연속 3회 이상 실패** |
 
-`run` 단계는 `continue-on-error: true` 라, 실패해도 **커밋은 먼저 합니다.**
-`raw/` 와 `meta.json` 이 저장소에 남아야 나중에 원인을 볼 수 있기 때문입니다.
-알림은 커밋 다음 단계에서 냅니다.
+`daily.sh` 는 이 코드를 그대로 반환합니다. cron 은 0 이 아니면 로컬 메일을
+남기므로, 서버에서 확인하려면:
+
+```bash
+tail -50 /opt/jobs-common-data-injest/logs/daily-$(date +%Y-%m-%d).log
+```
 
 연속 실패 횟수는 `meta.json` 의 `consecutive_failures` 이고, 성공하면 0 으로
-돌아갑니다.
+돌아갑니다. 커밋이 계속 올라오므로 저장소 커밋 이력만 봐도 상태를 알 수 있습니다.
+
+> **아직 안 된 것**: 실패를 사람에게 밀어주는 알림(메일·슬랙 등)이 없습니다.
+> 지금은 저장소 커밋이 끊기거나 `mkt_source_state.status` 가 `ok` 가 아닌 걸로
+> 알아채야 합니다.
 
 ---
 
-## 6. 시크릿
+## 6. 비밀값
 
-| 이름 | 없으면 |
-|---|---|
-| `DATA_GO_KR_KEY` | 수집 자체가 안 됨 (필수) |
-| `SUPABASE_URL` | DB 쓰기를 건너뛰고 파일만 커밋 |
-| `SUPABASE_SERVICE_ROLE_KEY` | 〃 |
+| 이름 | 어디 | 없으면 |
+|---|---|---|
+| `DATA_GO_KR_KEY` | VPS `.env` | 수집이 안 됨 (필수) |
+| SSH 배포 키 | VPS `~/.ssh/id_ed25519` | GitHub 푸시가 안 됨 |
+| `SUPABASE_SERVICE_ROLE_KEY` | **아무 데도 필요 없음** | — |
 
-`SUPABASE_SERVICE_ROLE_KEY` 는 RLS 를 우회하는 관리자 키입니다.
-저장소·코드·로그 어디에도 남기지 마세요.
+DB 가 공개 미러에서 당겨오는 구조라, 관리자 키를 서버에 두지 않습니다.
+VPS 가 털려도 DB 를 지울 수는 없습니다.
+
+`.env` 는 `.gitignore` 에 있어 저장소에 올라가지 않습니다.
 
 ---
 
@@ -221,32 +280,31 @@ as_of=2026-08  collected_date=2026-09-19  →  (늘어남)
 
 ---
 
-## 10. ⚠️ 알려진 문제 — GitHub 러너에서 상류 API 응답 없음
+## 10. 왜 GitHub Actions 가 아니라 VPS 인가
 
-**2026-08-19 확인.** `workflow_dispatch` 로 돌린 첫 실행이 `fetch...` 에서
-10분 넘게 멈췄습니다. 같은 코드가 VPS(말레이시아)에서는 8.6초에 끝납니다.
+처음엔 GitHub Actions 로 짰다가 옮겼습니다. **러너에서 상류 API 에 연결이 안 됩니다.**
 
-| 실행 위치 | `apis.data.go.kr` 응답 |
+2026-08-19 확인 (`check-api` 워크플로 실행 결과):
+
+```
+러너 위치   52.154.140.87  Microsoft Azure, 미국 아이오와
+DNS 조회    성공  ->  27.101.236.63
+TCP 80      안 열림 (15초 타임아웃)
+```
+
+주소는 찾는데 **연결 자체가 안 됩니다.** 느린 게 아니라 막힌 것입니다.
+한국 공공 API 가 해외 클라우드 IP 대역을 차단하는 흔한 경우입니다.
+
+실제로 `workflow_dispatch` 로 돌린 수집이 `fetch...` 에서 15분 멈췄고,
+그대로 뒀으면 24요청 x 3시도 x (20초 + 백오프) = 약 25분 뒤 전부 실패로
+끝났을 것입니다.
+
+| | `apis.data.go.kr` |
 |---|---|
 | VPS (Hostinger, 말레이시아) | 0.2 ~ 0.3초 |
-| GitHub Actions 러너 (Azure) | **응답 없음 (타임아웃)** |
+| GitHub 러너 (Azure, 미국) | **연결 불가** |
 
-지역 문제가 아니라 러너 IP 대역이 막힌 것으로 보입니다.
+코드 문제가 아니라 네트워크라, 설정으로는 못 고칩니다.
 
-**최악의 경우 소요 시간**
-24요청 × 3시도 × (20초 타임아웃 + 백오프) ≈ **25분**, 그 뒤 "전부 실패" 로
-`status=failed`.
-
-### 선택지
-
-| 방안 | 장점 | 단점 |
-|---|---|---|
-| **VPS cron 으로 이전** | 실측으로 되는 게 확인됨 | VPS 장애 = 수집 중단 |
-| self-hosted runner | Actions 구조 유지 | VPS 에 러너 상주 |
-| 프록시 경유 | Actions 유지 | 프록시 운영 부담 |
-| 타임아웃·재시도 축소 | 실패를 빨리 확정 | 근본 해결 아님 |
-
-아직 정하지 않았습니다. 정해지면 이 문서와 `collect.yml` 을 함께 고칩니다.
-
-> 참고: `test` 잡(ruff + pytest 65개)은 GitHub 러너에서 정상 통과합니다.
-> 문제는 외부 API 호출뿐입니다.
+> `test` 워크플로(ruff + pytest)는 GitHub 에서 그대로 돕니다. 외부 API 를
+> 안 부르기 때문입니다.

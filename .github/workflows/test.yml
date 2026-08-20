@@ -1,0 +1,42 @@
+name: test
+
+# 수집은 여기서 돌지 않습니다.
+#
+# GitHub 러너(미국 Azure)에서 apis.data.go.kr:80 연결이 막힙니다.
+# 2026-08-19 확인:
+#   러너 IP  52.154.140.87 (Microsoft, 아이오와)
+#   DNS      성공 -> 27.101.236.63
+#   TCP 80   안 열림
+# 수집을 돌려 봤더니 fetch 에서 15분 멈췄고, 그대로 두면 24요청 x 3시도 x
+# 20초 타임아웃으로 25분 뒤 전부 실패로 끝납니다.
+#
+# 그래서 수집은 VPS cron 이 합니다 -- scripts/daily.sh, 매일 00:10 KST.
+# DB(Supabase)는 공개 미러에서 스스로 당겨옵니다 -- pg_cron, 매일 00:40 KST.
+# 자세한 건 docs/SCHEDULE.md 를 보세요.
+#
+# 여기 남은 건 코드 검사뿐입니다. 외부 API 를 안 부르므로 잘 돕니다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ingest/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - ".github/workflows/test.yml"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: ruff check ingest tests
+      - run: pytest -q

@@ -215,7 +215,8 @@ diff 엔진은 append형·update형을 구분하지 않습니다. 짝짓기는 `
 - [x] GitHub 저장소 푸시 + 익명 읽기 확인
 - [x] 백필 2024-01 ~ 2026-07 (31개월, 58,486건)
 - [x] DB(Supabase) 적재 + PostgREST 부분 조회 확인
-- [ ] **Actions 스케줄 실행 후 자동 커밋** ← 시크릿 등록 대기
+- [x] **매일 자동 실행** — VPS cron 00:10 KST + Supabase pg_cron 00:40 KST
+- [ ] 실패 알림 (메일·슬랙 등)
 - [ ] 지역 확대
 
 ### 첫 실수집 결과 (2026-08-19)
@@ -241,14 +242,15 @@ diff 엔진은 append형·update형을 구분하지 않습니다. 짝짓기는 `
 
 ---
 
-## Actions 시크릿
+## 매일 어떻게 도나
 
-| 이름 | 없으면 |
-|---|---|
-| `DATA_GO_KR_KEY` | 수집 자체가 안 됩니다 (필수) |
-| `SUPABASE_URL` | DB 쓰기를 건너뛰고 파일만 커밋합니다 |
-| `SUPABASE_SERVICE_ROLE_KEY` | 〃 |
+```
+00:10 KST   VPS cron          수집 -> 파일 -> GitHub 커밋·푸시
+00:40 KST   Supabase pg_cron  공개 미러에서 스스로 당겨와 DB 갱신
+```
 
-`SUPABASE_SERVICE_ROLE_KEY` 는 RLS 를 우회하는 관리자 키입니다.
-Supabase 대시보드 → Project Settings → API → `service_role` 에서 복사하세요.
-**저장소·코드·로그 어디에도 남기지 마세요.** 새면 누구나 테이블을 지울 수 있습니다.
+GitHub Actions 에서는 **수집이 안 됩니다.** 러너(미국 Azure)에서
+`apis.data.go.kr:80` 연결이 막혀 있습니다. 자세한 건
+[docs/SCHEDULE.md](docs/SCHEDULE.md) 10장.
+
+DB 가 미러에서 당겨오는 구조라, 관리자 키를 서버 어디에도 두지 않습니다.
