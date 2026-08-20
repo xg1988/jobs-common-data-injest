@@ -22,6 +22,15 @@
 - [docs/DASHBOARD.md](docs/DASHBOARD.md) — 대시보드 기획 (무엇에 답하는 화면인가)
 - [web/](web/) — 대시보드와 API 문서 (Swagger)
 
+**바로 열기** (GitHub Pages)
+
+| | |
+|---|---|
+| 📊 대시보드 | https://xg1988.github.io/jobs-common-data-injest/web/ |
+| 🔧 API 문서 | https://xg1988.github.io/jobs-common-data-injest/web/swagger.html |
+
+Swagger 의 **Try it out** 은 실제 데이터를 부릅니다 (읽기 전용 키가 미리 채워져 있음).
+
 ---
 
 ## 빠르게 돌려보기
