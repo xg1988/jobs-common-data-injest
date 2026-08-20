@@ -1,0 +1,37 @@
+{
+  "source": "molit_apt_trade",
+  "collected_at": "2026-08-20T22:24:40Z",
+  "as_of": "2026-08",
+  "batch_rejected": true,
+  "errors": [
+    "레코드 수 급변: 2850 -> 103407 (+3528.3%, 허용 ±30%)"
+  ],
+  "warnings": [
+    "범위 이탈 레코드 1건 격리 (as_of=2026-08)",
+    "_key 충돌 2557건 (일련번호 부여)",
+    "조회한 모든 달에서 0건인 지역 1개: 인천 옹진군(28720) -- 코드가 낡았을 수 있습니다 (행정구역 개편)"
+  ],
+  "count": 1,
+  "entries": [
+    {
+      "reason": "price_manwon 범위 이탈: 800",
+      "record": {
+        "region_code": "51170",
+        "dong": "발한동",
+        "apt_name": "대원",
+        "area_m2": 22.23,
+        "floor": 2,
+        "built_year": 1990,
+        "deal_date": "2026-06-08",
+        "price_manwon": 800,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "직거래",
+        "_key": "51170|발한동|대원|22.23|2|20260608|800",
+        "_watch": {
+          "canceled": false
+        }
+      }
+    }
+  ]
+}

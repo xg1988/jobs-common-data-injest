@@ -1,16 +1,16 @@
 {
-  "updated_at": "2026-08-20T02:50:31Z",
+  "updated_at": "2026-08-20T22:24:48Z",
   "sources": {
     "molit_apt_trade": {
-      "status": "ok",
+      "status": "quarantined",
       "last_success": "2026-08-20T02:50:31Z",
-      "last_attempt": "2026-08-20T02:50:31Z",
-      "consecutive_failures": 0,
+      "last_attempt": "2026-08-20T22:24:48Z",
+      "consecutive_failures": 1,
       "record_count": 2850,
       "as_of": "2026-08",
       "schema_version": 1,
-      "quarantined_count": 0,
-      "error": null
+      "quarantined_count": 1,
+      "error": "레코드 수 급변: 2850 -> 103407 (+3528.3%, 허용 ±30%)"
     }
   }
 }
