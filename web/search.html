@@ -408,16 +408,28 @@ function render(total, truncated) {
 
   // 요약은 **취소 거래를 뺀** 값으로 냅니다. 안 그러면 취소된 신고가가
   // 최고가로 잡힙니다 (실측 2.2% 가 해제분입니다).
-  const live = ROWS.filter(r => !r.canceled);
+  //
+  // 단, "해제된 것만" 을 고른 경우는 예외입니다. 그건 취소분을 보겠다고
+  // 한 것이라, 거기서 또 취소분을 빼면 0건이 남아 최저가가 Infinity,
+  // 최고가가 -Infinity 로 나옵니다.
+  const onlyCanceled = $("canceled").value === "only";
+  const live = onlyCanceled ? ROWS : ROWS.filter(r => !r.canceled);
   const prices = live.map(r => r.price_manwon);
   const units  = live.filter(r => r.area_m2 > 0)
                      .map(r => r.price_manwon / r.area_m2);
+
+  // 필터 조합에 따라 여기가 빌 수 있습니다. Math.min([]) 은 Infinity 라
+  // 화면에 "Infinity억" 이 찍힙니다.
+  const lo = prices.length ? eok(Math.min(...prices)) : "—";
+  const hi = prices.length ? eok(Math.max(...prices)) : "—";
 
   // 잘렸으면 이 숫자들은 전체가 아니라 **최근 10,000건** 기준입니다.
   // 그냥 "중앙값" 이라고 적으면 전체 중앙값으로 읽힙니다.
   const basis = truncated
     ? `최근 ${nf(live.length)}건 표본`
-    : `취소 제외 ${nf(live.length)}건`;
+    : onlyCanceled
+      ? `해제 거래 ${nf(live.length)}건`
+      : `취소 제외 ${nf(live.length)}건`;
 
   $("summary").innerHTML = `<div class="kpis">
     <div class="kpi"><div class="k">거래</div><div class="v">${nf(total)}</div>
@@ -425,9 +437,9 @@ function render(total, truncated) {
     <div class="kpi"><div class="k">중앙값${truncated ? "*" : ""}</div>
       <div class="v">${eok(median(prices))}</div><div class="n">${basis}</div></div>
     <div class="kpi"><div class="k">최저${truncated ? "*" : ""}</div>
-      <div class="v">${eok(Math.min(...prices))}</div></div>
+      <div class="v">${lo}</div></div>
     <div class="kpi"><div class="k">최고${truncated ? "*" : ""}</div>
-      <div class="v">${eok(Math.max(...prices))}</div></div>
+      <div class="v">${hi}</div></div>
     <div class="kpi"><div class="k">㎡당${truncated ? "*" : ""}</div>
       <div class="v">${units.length ? Math.round(median(units)).toLocaleString("ko-KR") : "—"}</div>
       <div class="n">만원 · 중앙값</div></div>
@@ -445,8 +457,11 @@ function render(total, truncated) {
   + (ROWS.length > RENDER
       ? `표에는 ${nf(RENDER)}건만 그립니다 (집계는 ${nf(ROWS.length)}건 전부). `
       : "")
-  + `요약값은 <b>해제(취소) 거래를 뺀</b> ${nf(live.length)}건 기준입니다. `
-  + `취소된 신고가를 섞으면 최고가가 실제보다 높게 나옵니다.`;
+  + (onlyCanceled
+      ? `요약값은 <b>해제(취소)된</b> ${nf(live.length)}건 기준입니다. `
+      + `이 가격들은 신고됐다가 취소된 것이라, 시세로 쓰면 안 됩니다.`
+      : `요약값은 <b>해제(취소) 거래를 뺀</b> ${nf(live.length)}건 기준입니다. `
+      + `취소된 신고가를 섞으면 최고가가 실제보다 높게 나옵니다.`);
 }
 
 function sortAndFill() {
