@@ -234,8 +234,9 @@ def test_key_assignment_does_not_depend_on_response_order(monkeypatch):
 
     assert key_of(forward, canceled=True) == key_of(backward, canceled=True)
     assert key_of(forward, canceled=False) == key_of(backward, canceled=False)
-    # 해제분이 #2 를 받습니다 (canceled=False 가 먼저 정렬되므로).
-    assert key_of(forward, canceled=True).endswith("#2")
+    # 해제분이 기준 키를 갖습니다 (아래 재신고 테스트 참고).
+    assert not key_of(forward, canceled=True).endswith("#2")
+    assert key_of(forward, canceled=False).endswith("#2")
 
 
 def test_failed_request_items_are_skipped(monkeypatch):
@@ -379,3 +380,35 @@ def test_series_is_split_by_deal_month(monkeypatch):
     assert [p["as_of"] for p in points] == ["2026-06", "2026-07"]
     assert [p["record_count"] for p in points] == [2, 2]
     assert points[0]["metrics"]["overall"]["price_manwon_max"] == 145000
+
+
+def test_rereport_after_cancellation_is_added_not_uncanceled(monkeypatch):
+    """해제된 신고가 남아 있는 채로 정상 신고가 새로 들어오는 경우.
+
+    실데이터 (11530 신도림동 우성2 2026-07-08 84.82제곱미터 5층 122,000):
+        어제  해제분 1건
+        오늘  해제분 1건 + 정상분 1건   <- 재신고
+
+    사실은 "재신고 1건 추가" 입니다. 정상분이 기준 키를 가져가면 diff 가
+    `canceled: true -> false` 로 나와 "취소가 풀렸다" 로 읽히고,
+    알림 봇이 정반대로 알립니다.
+    """
+    from ingest import differ
+
+    src = make_source(monkeypatch)
+    items = items_of("molit_apt_trade_canceled.xml")
+    # 같은 거래의 해제분/정상분 짝을 고릅니다 (까치마을).
+    canceled_item = next(i for i in items if i["cdealType"].strip() == "O"
+                         and i["aptNm"] == "까치마을")
+    normal_item = next(i for i in items if i["cdealType"].strip() == ""
+                       and i["aptNm"] == "까치마을")
+
+    yesterday = src.normalize(raw_from_items([canceled_item]))
+    today = src.normalize(raw_from_items([canceled_item, normal_item]))
+
+    diff = differ.diff_records(
+        yesterday, today, source="molit_apt_trade", from_label="d1", to_label="d2"
+    )
+
+    assert diff["summary"] == {"added": 1, "removed": 0, "changed": 0}
+    assert diff["added"][0]["record"]["canceled"] is False  # 재신고분이 added
