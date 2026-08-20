@@ -371,3 +371,45 @@ def test_scope_change_does_not_excuse_an_empty_response():
 
     assert not result.ok
     assert any("빈 응답" in e for e in result.errors)
+
+
+def test_backfill_stops_when_the_quota_runs_out(tmp_storage, monkeypatch):
+    """한도를 다 썼으면 남은 달을 도는 게 무의미합니다.
+
+    계속 돌면 헛돌면서, 아직 회복되지도 않은 한도를 미리 깎아 먹습니다.
+    어디까지 받았고 어디서부터 이어야 하는지도 알려 줘야 합니다.
+    """
+    from ingest.base import QuotaExhausted
+
+    calls: list[str] = []
+
+    class Flaky(Source):
+        name = "flaky"
+        as_of_precision = "month"
+        supports_backfill = True
+
+        def fetch(self):
+            raise NotImplementedError
+
+        def normalize(self, raw):
+            return []
+
+        def as_of(self, raw):
+            return raw["period"]
+
+        def fetch_period(self, period):
+            calls.append(period)
+            if len(calls) >= 3:
+                raise QuotaExhausted("하루 요청 한도를 다 썼습니다")
+            return FetchResult(raw={"period": period, "requests": []})
+
+    lines: list[str] = []
+    results = pipeline.run_backfill(
+        Flaky(), ["2025-01", "2025-02", "2025-03", "2025-04", "2025-05"],
+        log=lines.append,
+    )
+
+    assert calls == ["2025-01", "2025-02", "2025-03"]   # 4·5월은 아예 안 부름
+    assert len(results) == 3
+    assert not results[-1].ok
+    assert any("--from 2025-03 --to 2025-05" in ln for ln in lines)

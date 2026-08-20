@@ -26,7 +26,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from ingest import db, differ, meta, quality, storage
-from ingest.base import Source, ValidationResult
+from ingest.base import QuotaExhausted, Source, ValidationResult
 
 Logger = Callable[[str], None]
 
@@ -413,6 +413,19 @@ def run_backfill(
         log(f"[{source.name}] backfill {period} ...")
         try:
             fetched = source.fetch_period(period)
+        except QuotaExhausted as exc:
+            # 남은 달을 도는 게 무의미합니다. 헛돌면서 아직 회복되지도 않은
+            # 한도를 미리 깎아 먹습니다. 여기까지 받은 건 이미 저장됐습니다.
+            res.errors.append(str(exc))
+            results.append(res)
+            done = [r.as_of for r in results if r.ok]
+            log(
+                f"[{source.name}] {exc}\n"
+                f"  {len(done)}/{len(periods)}개월 완료"
+                + (f" ({done[0]} ~ {done[-1]})" if done else "")
+                + f"\n  이어서 받으려면: --from {period} --to {periods[-1]}"
+            )
+            break
         except Exception as exc:  # noqa: BLE001
             msg = f"{type(exc).__name__}: {exc}"
             log(f"[{source.name}] {period} 실패 -- {msg}")

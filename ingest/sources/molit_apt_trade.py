@@ -23,7 +23,7 @@ from typing import Any
 import httpx
 
 from ingest import quality, storage
-from ingest.base import FetchResult, Source, ValidationResult
+from ingest.base import FetchResult, QuotaExhausted, Source, ValidationResult
 from ingest.registry import register
 
 # [확인 필요] 공공데이터포털 문서로 확정할 것.
@@ -79,8 +79,44 @@ def read_service_key() -> str:
 # ---------------------------------------------------------------------------
 
 
+#: 다시 걸어도 소용없는 에러 코드.
+#:
+#: 재시도가 의미 있으려면 "다음 번엔 될 수도 있다" 가 참이어야 합니다.
+#: 한도를 다 썼거나 키가 잘못됐으면 1초 뒤에도, 4초 뒤에도 똑같습니다.
+#:
+#: 2026-08-20 실제 사례: 하루 한도(10,000회)를 다 쓴 상태로 전국 수집을
+#: 돌렸더니, 762개 요청이 각각 3번씩 재시도 + 백오프를 하면서 40분 넘게
+#: 헛돌았습니다. 로그에는 "fetch..." 한 줄뿐이라 밖에서는 멀쩡히 도는
+#: 것처럼 보였습니다.
+FATAL_RESULT_CODES = {
+    "22",  # 일일 요청 한도 초과
+    "20",  # 서비스 접근 거부
+    "21",  # 일시적으로 사용할 수 없는 키
+    "30",  # 등록되지 않은 서비스키
+    "31",  # 기한 만료된 키
+    "32",  # 등록되지 않은 IP
+}
+
+#: 이 코드가 오면 남은 지역을 도는 것 자체가 무의미합니다.
+#: 계속 부르면 (한도가 회복될 때까지) 내일 몫까지 깎아 먹습니다.
+QUOTA_RESULT_CODES = {"22"}
+
+
 class ApiError(RuntimeError):
     """API 가 에러 응답을 준 경우 (HTTP 200 이어도)."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(f"[{code}] {message}")
+        self.code = code
+        self.message = message
+
+    @property
+    def retryable(self) -> bool:
+        return self.code not in FATAL_RESULT_CODES
+
+    @property
+    def quota_exhausted(self) -> bool:
+        return self.code in QUOTA_RESULT_CODES
 
 
 def _text(el: ET.Element | None) -> str:
@@ -100,12 +136,12 @@ def parse_xml_response(body: str) -> tuple[list[dict], int, str, str]:
     if cmm is not None:
         code = _text(cmm.find("returnReasonCode"))
         msg = _text(cmm.find("returnAuthMsg")) or _text(cmm.find("errMsg"))
-        raise ApiError(f"[{code}] {msg}")
+        raise ApiError(code, msg)
 
     code = _text(root.find(".//resultCode"))
     msg = _text(root.find(".//resultMsg"))
     if code and code not in OK_RESULT_CODES:
-        raise ApiError(f"[{code}] {msg}")
+        raise ApiError(code, msg)
 
     items: list[dict] = []
     for item in root.findall(".//items/item"):
@@ -135,14 +171,14 @@ def parse_json_response(payload: dict) -> tuple[list[dict], int, str, str]:
         header = gateway.get("cmmMsgHeader", {}) or {}
         code = str(header.get("returnReasonCode", "")).strip()
         msg = str(header.get("returnAuthMsg") or header.get("errMsg") or "").strip()
-        raise ApiError(f"[{code}] {msg}")
+        raise ApiError(code, msg)
 
     resp = payload.get("response", payload)
     header = resp.get("header", {}) or {}
     code = str(header.get("resultCode", "")).strip()
     msg = str(header.get("resultMsg", "")).strip()
     if code and code not in OK_RESULT_CODES:
-        raise ApiError(f"[{code}] {msg}")
+        raise ApiError(code, msg)
 
     body = resp.get("body", {}) or {}
     raw_items = body.get("items") or {}
@@ -362,16 +398,28 @@ class MolitAptTrade(Source):
                     page_items, total = self._request_once(client, lawd_cd, deal_ymd, page)
                     last_error = None
                     break
-                except Exception as exc:  # noqa: BLE001 -- 재시도 대상 전부
+                except ApiError as exc:
                     last_error = exc
+                    # 한도 초과나 잘못된 키는 다시 걸어도 똑같습니다.
+                    # 재시도하면 시간만 버리고, 한도는 더 깎입니다.
+                    if not exc.retryable:
+                        break
                     if attempt < self.max_retries - 1:
                         time.sleep(2**attempt)  # 지수 백오프: 1s, 2s, 4s
+                except Exception as exc:  # noqa: BLE001 -- 나머지는 재시도
+                    last_error = exc
+                    if attempt < self.max_retries - 1:
+                        time.sleep(2**attempt)
             if last_error is not None:
                 return {
                     "region_code": lawd_cd,
                     "deal_ymd": deal_ymd,
                     "ok": False,
                     "error": f"{type(last_error).__name__}: {last_error}",
+                    "fatal": isinstance(last_error, ApiError) and not last_error.retryable,
+                    "quota_exhausted": (
+                        isinstance(last_error, ApiError) and last_error.quota_exhausted
+                    ),
                     "total_count": None,
                     "pages": pages,
                     "items": items,
@@ -418,6 +466,15 @@ class MolitAptTrade(Source):
                     requests_log.append(entry)
                     if not entry["ok"]:
                         failures.append(f"{name} {month} 조회 실패")
+                    # 하루 한도를 다 썼으면 남은 지역을 도는 게 무의미합니다.
+                    # 계속 부르면 시간만 버리고, 회복될 때까지 한도를 더
+                    # 깎습니다. 여기서 멈춰야 로그에 원인이 남습니다.
+                    if entry.get("quota_exhausted"):
+                        raise QuotaExhausted(
+                            f"하루 요청 한도를 다 썼습니다 ({entry['error']}). "
+                            f"{len(requests_log)}/{len(self.regions) * len(months)}개 요청에서 멈춥니다. "
+                            "한국시간 자정에 초기화됩니다."
+                        )
                     if delay:
                         time.sleep(delay)
 

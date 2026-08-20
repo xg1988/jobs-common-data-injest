@@ -470,3 +470,71 @@ def test_failed_request_is_not_reported_as_empty_region(monkeypatch):
     with pytest.raises(RuntimeError):   # 전부 실패 = 수집 실패
         src.fetch()
     assert src.last_empty_regions == []
+
+
+# ---------------------------------------------------------------------------
+# 하루 요청 한도 — 재시도해도 절대 안 되는 에러
+# ---------------------------------------------------------------------------
+
+QUOTA_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<response><header>
+  <resultCode>22</resultCode>
+  <resultMsg>일일 서비스 요청제한 횟수 초과 에러</resultMsg>
+</header></response>"""
+
+
+def test_quota_error_is_not_retryable():
+    """다시 걸어도 똑같습니다. 재시도는 시간만 버리고 한도를 더 깎습니다."""
+    with pytest.raises(m.ApiError) as caught:
+        m.parse_xml_response(QUOTA_XML)
+
+    assert caught.value.code == "22"
+    assert caught.value.retryable is False
+    assert caught.value.quota_exhausted is True
+
+
+def test_a_normal_error_is_still_retryable():
+    """일시적인 오류까지 재시도를 막으면 멀쩡한 수집이 한 번에 죽습니다."""
+    body = QUOTA_XML.replace("<resultCode>22<", "<resultCode>99<")
+
+    with pytest.raises(m.ApiError) as caught:
+        m.parse_xml_response(body)
+
+    assert caught.value.retryable is True
+    assert caught.value.quota_exhausted is False
+
+
+@respx.mock
+def test_quota_error_stops_the_whole_run_immediately(monkeypatch):
+    """한도를 다 썼으면 남은 지역을 도는 게 무의미합니다.
+
+    2026-08-20 실제 사례: 한도를 다 쓴 채로 전국 수집을 돌렸더니
+    762개 요청이 각각 3번씩 재시도 + 백오프를 하며 40분 넘게 헛돌았고,
+    로그에는 "fetch..." 한 줄뿐이라 밖에서는 멀쩡히 도는 것처럼 보였습니다.
+    """
+    src = make_source(monkeypatch)
+    src.regions = [{"code": f"1168{i}", "name": f"구{i}"} for i in range(5)]
+
+    route = respx.get(url__startswith="http://example.test").mock(
+        return_value=httpx.Response(200, text=QUOTA_XML)
+    )
+
+    with pytest.raises(RuntimeError, match="하루 요청 한도"):
+        src.fetch()
+
+    # 첫 지역에서 멈춰야 합니다. 재시도도 하지 않습니다.
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_a_retryable_error_still_gets_retried(monkeypatch):
+    src = make_source(monkeypatch, max_retries=3)
+    src.regions = [{"code": "11680", "name": "서울 강남구"}]
+    route = respx.get(url__startswith="http://example.test").mock(
+        return_value=httpx.Response(500, text="서버 오류")
+    )
+
+    with pytest.raises(RuntimeError):
+        src.fetch()
+
+    assert route.call_count == 3

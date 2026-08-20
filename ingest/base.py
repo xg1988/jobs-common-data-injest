@@ -10,6 +10,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+class QuotaExhausted(RuntimeError):
+    """하루 요청 한도를 다 썼다. 더 부르는 게 무의미한 상태.
+
+    일반 실패와 구분해야 합니다. 백필은 한 달이 실패해도 다음 달로
+    넘어가는데, 한도 초과일 때 그러면 남은 달을 전부 헛돌면서 아직
+    회복되지도 않은 한도를 미리 깎아 먹습니다.
+    """
+
+
 @dataclass
 class FetchResult:
     """원본 응답. 가공 금지."""
