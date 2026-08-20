@@ -1,482 +1,754 @@
 {
   "source": "molit_apt_trade",
-  "from": "2026-08-20",
+  "from": "2026-08-19",
   "to": "2026-08-20",
-  "added": [],
-  "removed": [],
-  "changed": [
+  "added": [
     {
-      "_key": "11170|산천동|리버힐삼성|114.48|1|20260620|172000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11170|이촌동|한가람|59.88|3|20260710|230000",
+      "record": {
+        "region_code": "11170",
+        "dong": "이촌동",
+        "apt_name": "한가람",
+        "area_m2": 59.88,
+        "floor": 3,
+        "built_year": 1998,
+        "deal_date": "2026-07-10",
+        "price_manwon": 230000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11170|이촌동|한가람|59.88|3|20260710|230000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11170|산천동|리버힐삼성|114.48|1|20260620|172000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11170|이촌동|한강맨숀|101.95|5|20260630|433940",
+      "record": {
+        "region_code": "11170",
+        "dong": "이촌동",
+        "apt_name": "한강맨숀",
+        "area_m2": 101.95,
+        "floor": 5,
+        "built_year": 1971,
+        "deal_date": "2026-06-30",
+        "price_manwon": 433940,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11170|이촌동|한강맨숀|101.95|5|20260630|433940",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11170|산천동|리버힐삼성|59.55|3|20260710|150000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11215|구의동|현대프라임|59.82|2|20260729|174000",
+      "record": {
+        "region_code": "11215",
+        "dong": "구의동",
+        "apt_name": "현대프라임",
+        "area_m2": 59.82,
+        "floor": 2,
+        "built_year": 1997,
+        "deal_date": "2026-07-29",
+        "price_manwon": 174000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11215|구의동|현대프라임|59.82|2|20260729|174000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11170|산천동|리버힐삼성|59.55|3|20260710|150000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11305|번동|신원|84.6|19|20260806|58000",
+      "record": {
+        "region_code": "11305",
+        "dong": "번동",
+        "apt_name": "신원",
+        "area_m2": 84.6,
+        "floor": 19,
+        "built_year": 2000,
+        "deal_date": "2026-08-06",
+        "price_manwon": 58000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11305|번동|신원|84.6|19|20260806|58000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11170|이촌동|미주B|149.09|4|20260630|178000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11440|노고산동|현대벤처빌|25.42|16|20260801|24400",
+      "record": {
+        "region_code": "11440",
+        "dong": "노고산동",
+        "apt_name": "현대벤처빌",
+        "area_m2": 25.42,
+        "floor": 16,
+        "built_year": 2002,
+        "deal_date": "2026-08-01",
+        "price_manwon": 24400,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11440|노고산동|현대벤처빌|25.42|16|20260801|24400",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11170|이촌동|미주B|149.09|4|20260630|178000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11440|상암동|상암월드컵파크4단지|84.76|19|20260804|175000",
+      "record": {
+        "region_code": "11440",
+        "dong": "상암동",
+        "apt_name": "상암월드컵파크4단지",
+        "area_m2": 84.76,
+        "floor": 19,
+        "built_year": 2006,
+        "deal_date": "2026-08-04",
+        "price_manwon": 175000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11440|상암동|상암월드컵파크4단지|84.76|19|20260804|175000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11170|이촌동|이촌코오롱(A)|59.82|10|20260707|205000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11440|연남동|코오롱|59.76|2|20260805|110000",
+      "record": {
+        "region_code": "11440",
+        "dong": "연남동",
+        "apt_name": "코오롱",
+        "area_m2": 59.76,
+        "floor": 2,
+        "built_year": 2003,
+        "deal_date": "2026-08-05",
+        "price_manwon": 110000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11440|연남동|코오롱|59.76|2|20260805|110000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11170|이촌동|이촌코오롱(A)|59.82|10|20260707|205000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11440|창전동|해모로|83.85|17|20260728|195000",
+      "record": {
+        "region_code": "11440",
+        "dong": "창전동",
+        "apt_name": "해모로",
+        "area_m2": 83.85,
+        "floor": 17,
+        "built_year": 2007,
+        "deal_date": "2026-07-28",
+        "price_manwon": 195000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11440|창전동|해모로|83.85|17|20260728|195000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11170|효창동|효창한신|71.77|1|20260612|153000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11440|현석동|강변힐스테이트|114.99|13|20260730|229000",
+      "record": {
+        "region_code": "11440",
+        "dong": "현석동",
+        "apt_name": "강변힐스테이트",
+        "area_m2": 114.99,
+        "floor": 13,
+        "built_year": 2004,
+        "deal_date": "2026-07-30",
+        "price_manwon": 229000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11440|현석동|강변힐스테이트|114.99|13|20260730|229000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11170|효창동|효창한신|71.77|1|20260612|153000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11530|개봉동|두산|59.69|7|20260729|68500",
+      "record": {
+        "region_code": "11530",
+        "dong": "개봉동",
+        "apt_name": "두산",
+        "area_m2": 59.69,
+        "floor": 7,
+        "built_year": 1997,
+        "deal_date": "2026-07-29",
+        "price_manwon": 68500,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|개봉동|두산|59.69|7|20260729|68500",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11215|자양동|자양강변I-Park|84.95|13|20260714|219000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11530|개봉동|삼호|84.88|12|20260730|80700",
+      "record": {
+        "region_code": "11530",
+        "dong": "개봉동",
+        "apt_name": "삼호",
+        "area_m2": 84.88,
+        "floor": 12,
+        "built_year": 1996,
+        "deal_date": "2026-07-30",
+        "price_manwon": 80700,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|개봉동|삼호|84.88|12|20260730|80700",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11215|자양동|자양강변I-Park|84.95|13|20260714|219000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11530|고척동|우성,현대아파트|68.7|10|20260812|80000",
+      "record": {
+        "region_code": "11530",
+        "dong": "고척동",
+        "apt_name": "우성,현대아파트",
+        "area_m2": 68.7,
+        "floor": 10,
+        "built_year": 1987,
+        "deal_date": "2026-08-12",
+        "price_manwon": 80000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|고척동|우성,현대아파트|68.7|10|20260812|80000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11440|공덕동|솔리스타|14.29|15|20260630|15900",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11530|고척동|한효|74.1|1|20260819|62000",
+      "record": {
+        "region_code": "11530",
+        "dong": "고척동",
+        "apt_name": "한효",
+        "area_m2": 74.1,
+        "floor": 1,
+        "built_year": 1985,
+        "deal_date": "2026-08-19",
+        "price_manwon": 62000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "직거래",
+        "_key": "11530|고척동|한효|74.1|1|20260819|62000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11440|공덕동|솔리스타|14.29|15|20260630|15900#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11530|구로동|구로두산|51.84|19|20260731|72800",
+      "record": {
+        "region_code": "11530",
+        "dong": "구로동",
+        "apt_name": "구로두산",
+        "area_m2": 51.84,
+        "floor": 19,
+        "built_year": 1998,
+        "deal_date": "2026-07-31",
+        "price_manwon": 72800,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|구로동|구로두산|51.84|19|20260731|72800",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11440|대흥동|마포그랑자이|84.98|7|20260614|261500",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11530|구로동|성호메이플라워멤버스빌|41.4|9|20260817|21000",
+      "record": {
+        "region_code": "11530",
+        "dong": "구로동",
+        "apt_name": "성호메이플라워멤버스빌",
+        "area_m2": 41.4,
+        "floor": 9,
+        "built_year": 2002,
+        "deal_date": "2026-08-17",
+        "price_manwon": 21000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|구로동|성호메이플라워멤버스빌|41.4|9|20260817|21000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11440|대흥동|마포그랑자이|84.98|7|20260614|261500#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11530|구로동|한신|44.78|13|20260731|53700",
+      "record": {
+        "region_code": "11530",
+        "dong": "구로동",
+        "apt_name": "한신",
+        "area_m2": 44.78,
+        "floor": 13,
+        "built_year": 1988,
+        "deal_date": "2026-07-31",
+        "price_manwon": 53700,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|구로동|한신|44.78|13|20260731|53700",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11440|망원동|미원2|59.79|1|20260709|66500",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11530|구로동|현대연예인|74.66|8|20260729|86000",
+      "record": {
+        "region_code": "11530",
+        "dong": "구로동",
+        "apt_name": "현대연예인",
+        "area_m2": 74.66,
+        "floor": 8,
+        "built_year": 1989,
+        "deal_date": "2026-07-29",
+        "price_manwon": 86000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|구로동|현대연예인|74.66|8|20260729|86000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11440|망원동|미원2|59.79|1|20260709|66500#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11530|구로동|현대연예인|84.91|15|20260814|82600",
+      "record": {
+        "region_code": "11530",
+        "dong": "구로동",
+        "apt_name": "현대연예인",
+        "area_m2": 84.91,
+        "floor": 15,
+        "built_year": 1989,
+        "deal_date": "2026-08-14",
+        "price_manwon": 82600,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|구로동|현대연예인|84.91|15|20260814|82600",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11440|상수동|래미안밤섬리베뉴Ⅱ|84.92|1|20260605|207000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11440|상수동|래미안밤섬리베뉴Ⅱ|84.92|1|20260605|207000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11440|아현동|더클래시|59.97|9|20260629|215000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11440|아현동|더클래시|59.97|9|20260629|215000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11530|개봉동|거성푸르뫼|59.89|2|20260715|38700",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11530|개봉동|거성푸르뫼|59.89|2|20260715|38700#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11530|개봉동|한마을|59.57|20|20260718|101700",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11530|개봉동|한마을|59.57|20|20260718|101700#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11530|개봉동|현대|84.99|17|20260619|106400",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11530|개봉동|현대|84.99|17|20260619|106400#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11530|구로동|(803-13)구로아트빌라8|59.44|5|20260613|26800",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11530|구로동|(803-13)구로아트빌라8|59.44|5|20260613|26800#3",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11530|구로동|럭키|56.11|9|20260708|70000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11530|구로동|럭키|56.11|9|20260708|70000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11530|신도림동|우성2|84.82|5|20260708|122000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11530|신도림동|디큐브시티|59.95|8|20260808|118000",
+      "record": {
+        "region_code": "11530",
+        "dong": "신도림동",
+        "apt_name": "디큐브시티",
+        "area_m2": 59.95,
+        "floor": 8,
+        "built_year": 2011,
+        "deal_date": "2026-08-08",
+        "price_manwon": 118000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|신도림동|디큐브시티|59.95|8|20260808|118000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
       "_key": "11530|신도림동|우성2|84.82|5|20260708|122000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "record": {
+        "region_code": "11530",
+        "dong": "신도림동",
+        "apt_name": "우성2",
+        "area_m2": 84.82,
+        "floor": 5,
+        "built_year": 1996,
+        "deal_date": "2026-07-08",
+        "price_manwon": 122000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|신도림동|우성2|84.82|5|20260708|122000#2",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11530|온수동|온수힐스테이트|121.26|10|20260704|100000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11530|오류동|동부골든|105.21|5|20260725|62000",
+      "record": {
+        "region_code": "11530",
+        "dong": "오류동",
+        "apt_name": "동부골든",
+        "area_m2": 105.21,
+        "floor": 5,
+        "built_year": 1998,
+        "deal_date": "2026-07-25",
+        "price_manwon": 62000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|오류동|동부골든|105.21|5|20260725|62000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11530|온수동|온수힐스테이트|121.26|10|20260704|100000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11530|오류동|영풍마드레빌|84.741|6|20260806|80500",
+      "record": {
+        "region_code": "11530",
+        "dong": "오류동",
+        "apt_name": "영풍마드레빌",
+        "area_m2": 84.741,
+        "floor": 6,
+        "built_year": 2002,
+        "deal_date": "2026-08-06",
+        "price_manwon": 80500,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|오류동|영풍마드레빌|84.741|6|20260806|80500",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11530|항동|한양수자인에듀힐즈|84.8784|8|20260619|88000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11530|항동|우남퍼스트빌더센트럴|79.9913|14|20260807|75000",
+      "record": {
+        "region_code": "11530",
+        "dong": "항동",
+        "apt_name": "우남퍼스트빌더센트럴",
+        "area_m2": 79.9913,
+        "floor": 14,
+        "built_year": 2020,
+        "deal_date": "2026-08-07",
+        "price_manwon": 75000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11530|항동|우남퍼스트빌더센트럴|79.9913|14|20260807|75000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11530|항동|한양수자인에듀힐즈|84.8784|8|20260619|88000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11530|항동|항동중흥에스클래스베르데카운티|84.9416|8|20260604|93000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11530|항동|항동중흥에스클래스베르데카운티|84.9416|8|20260604|93000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11650|방배동|방배아크로타워|62.58|8|20260711|85500",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11650|방배동|방배아크로타워|62.58|8|20260711|85500#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11650|서초동|삼성서초가든스위트|181.5|13|20260608|420000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11650|서초동|삼성서초가든스위트|181.5|13|20260608|420000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11650|서초동|서초동삼성쉐르빌2|35.22|12|20260808|28300",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11650|방배동|렉스빌|244.68|3|20260720|360000",
+      "record": {
+        "region_code": "11650",
+        "dong": "방배동",
+        "apt_name": "렉스빌",
+        "area_m2": 244.68,
+        "floor": 3,
+        "built_year": 2002,
+        "deal_date": "2026-07-20",
+        "price_manwon": 360000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11650|방배동|렉스빌|244.68|3|20260720|360000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
       "_key": "11650|서초동|서초동삼성쉐르빌2|35.22|12|20260808|28300#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "record": {
+        "region_code": "11650",
+        "dong": "서초동",
+        "apt_name": "서초동삼성쉐르빌2",
+        "area_m2": 35.22,
+        "floor": 12,
+        "built_year": 2002,
+        "deal_date": "2026-08-08",
+        "price_manwon": 28300,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11650|서초동|서초동삼성쉐르빌2|35.22|12|20260808|28300#2",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11650|서초동|현대아파트|84.33|8|20260710|249000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11650|잠원동|한신|84.52|3|20260727|350000",
+      "record": {
+        "region_code": "11650",
+        "dong": "잠원동",
+        "apt_name": "한신",
+        "area_m2": 84.52,
+        "floor": 3,
+        "built_year": 1992,
+        "deal_date": "2026-07-27",
+        "price_manwon": 350000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11650|잠원동|한신|84.52|3|20260727|350000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11650|서초동|현대아파트|84.33|8|20260710|249000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11680|도곡동|SK허브프리모|63.09|19|20260817|103500",
+      "record": {
+        "region_code": "11680",
+        "dong": "도곡동",
+        "apt_name": "SK허브프리모",
+        "area_m2": 63.09,
+        "floor": 19,
+        "built_year": 2006,
+        "deal_date": "2026-08-17",
+        "price_manwon": 103500,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11680|도곡동|SK허브프리모|63.09|19|20260817|103500",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11650|서초동|현대아파트|84.8|14|20260704|245000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11680|삼성동|래미안라클래시|71.95|35|20260731|378000",
+      "record": {
+        "region_code": "11680",
+        "dong": "삼성동",
+        "apt_name": "래미안라클래시",
+        "area_m2": 71.95,
+        "floor": 35,
+        "built_year": 2021,
+        "deal_date": "2026-07-31",
+        "price_manwon": 378000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11680|삼성동|래미안라클래시|71.95|35|20260731|378000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11650|서초동|현대아파트|84.8|14|20260704|245000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11680|역삼동|금호어울림|132.88|9|20260812|242000",
+      "record": {
+        "region_code": "11680",
+        "dong": "역삼동",
+        "apt_name": "금호어울림",
+        "area_m2": 132.88,
+        "floor": 9,
+        "built_year": 2003,
+        "deal_date": "2026-08-12",
+        "price_manwon": 242000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11680|역삼동|금호어울림|132.88|9|20260812|242000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11650|양재동|우성KBS(113동)|84.69|3|20260623|210000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11680|역삼동|역삼센트럴아파트|48.77|7|20260721|83000",
+      "record": {
+        "region_code": "11680",
+        "dong": "역삼동",
+        "apt_name": "역삼센트럴아파트",
+        "area_m2": 48.77,
+        "floor": 7,
+        "built_year": 2025,
+        "deal_date": "2026-07-21",
+        "price_manwon": 83000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "직거래",
+        "_key": "11680|역삼동|역삼센트럴아파트|48.77|7|20260721|83000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11650|양재동|우성KBS(113동)|84.69|3|20260623|210000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11710|가락동|우정에쉐르|84.91|7|20260818|92000",
+      "record": {
+        "region_code": "11710",
+        "dong": "가락동",
+        "apt_name": "우정에쉐르",
+        "area_m2": 84.91,
+        "floor": 7,
+        "built_year": 2004,
+        "deal_date": "2026-08-18",
+        "price_manwon": 92000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11710|가락동|우정에쉐르|84.91|7|20260818|92000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11680|개포동|래미안블레스티지|99.967|23|20260613|392000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11710|마천동|우방아파트|79.07|10|20260724|109000",
+      "record": {
+        "region_code": "11710",
+        "dong": "마천동",
+        "apt_name": "우방아파트",
+        "area_m2": 79.07,
+        "floor": 10,
+        "built_year": 2002,
+        "deal_date": "2026-07-24",
+        "price_manwon": 109000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11710|마천동|우방아파트|79.07|10|20260724|109000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11680|개포동|래미안블레스티지|99.967|23|20260613|392000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11710|문정동|올림픽훼밀리타운|136.325|11|20260723|295000",
+      "record": {
+        "region_code": "11710",
+        "dong": "문정동",
+        "apt_name": "올림픽훼밀리타운",
+        "area_m2": 136.325,
+        "floor": 11,
+        "built_year": 1988,
+        "deal_date": "2026-07-23",
+        "price_manwon": 295000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11710|문정동|올림픽훼밀리타운|136.325|11|20260723|295000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11680|삼성동|삼성동대성유니드|83.93|5|20260611|168000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11710|오금동|상아2차아파트|45.77|3|20260721|142000",
+      "record": {
+        "region_code": "11710",
+        "dong": "오금동",
+        "apt_name": "상아2차아파트",
+        "area_m2": 45.77,
+        "floor": 3,
+        "built_year": 1988,
+        "deal_date": "2026-07-21",
+        "price_manwon": 142000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11710|오금동|상아2차아파트|45.77|3|20260721|142000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11680|삼성동|삼성동대성유니드|83.93|5|20260611|168000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11710|잠실동|우성아파트|80.35|4|20260721|297000",
+      "record": {
+        "region_code": "11710",
+        "dong": "잠실동",
+        "apt_name": "우성아파트",
+        "area_m2": 80.35,
+        "floor": 4,
+        "built_year": 1981,
+        "deal_date": "2026-07-21",
+        "price_manwon": 297000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11710|잠실동|우성아파트|80.35|4|20260721|297000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11680|삼성동|삼성동롯데아파트|59.4|2|20260604|235000",
-      "field": "canceled",
-      "before": false,
-      "after": true
+      "_key": "11710|잠실동|잠실엘스|84.97|22|20260716|345000",
+      "record": {
+        "region_code": "11710",
+        "dong": "잠실동",
+        "apt_name": "잠실엘스",
+        "area_m2": 84.97,
+        "floor": 22,
+        "built_year": 2008,
+        "deal_date": "2026-07-16",
+        "price_manwon": 345000,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11710|잠실동|잠실엘스|84.97|22|20260716|345000",
+        "_watch": {
+          "canceled": false
+        }
+      }
     },
     {
-      "_key": "11680|삼성동|삼성동롯데아파트|59.4|2|20260604|235000#3",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11680|삼성동|삼성동센트럴아이파크|84.98|3|20260725|390000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11680|삼성동|삼성동센트럴아이파크|84.98|3|20260725|390000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11680|수서동|까치마을|34.44|6|20260620|145000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11680|수서동|까치마을|34.44|6|20260620|145000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11680|수서동|신동아|39.53|14|20260616|183500",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11680|수서동|신동아|39.53|14|20260616|183500#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11680|자곡동|강남자곡 힐스테이트|51.96|12|20260612|140000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11680|자곡동|강남자곡 힐스테이트|51.96|12|20260612|140000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11680|자곡동|강남자곡 힐스테이트|59.93|6|20260709|158000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11680|자곡동|강남자곡 힐스테이트|59.93|6|20260709|158000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11680|자곡동|래미안강남힐즈|101.94|11|20260624|230000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11680|자곡동|래미안강남힐즈|101.94|11|20260624|230000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11710|가락동|풍림1|80.52|6|20260618|129500",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11710|가락동|풍림1|80.52|6|20260618|129500#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11710|문정동|문정시영|25.65|6|20260603|72000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11710|문정동|문정시영|25.65|6|20260603|72000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11710|잠실동|트리지움|149.45|4|20260725|417000",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11710|잠실동|트리지움|149.45|4|20260725|417000#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
-    },
-    {
-      "_key": "11710|잠실동|트리지움|84.97|4|20260713|306500",
-      "field": "canceled",
-      "before": false,
-      "after": true
-    },
-    {
-      "_key": "11710|잠실동|트리지움|84.97|4|20260713|306500#2",
-      "field": "canceled",
-      "before": true,
-      "after": false
+      "_key": "11710|잠실동|주공아파트 5단지|82.61|8|20260725|457500",
+      "record": {
+        "region_code": "11710",
+        "dong": "잠실동",
+        "apt_name": "주공아파트 5단지",
+        "area_m2": 82.61,
+        "floor": 8,
+        "built_year": 1978,
+        "deal_date": "2026-07-25",
+        "price_manwon": 457500,
+        "canceled": false,
+        "canceled_date": null,
+        "deal_type": "중개거래",
+        "_key": "11710|잠실동|주공아파트 5단지|82.61|8|20260725|457500",
+        "_watch": {
+          "canceled": false
+        }
+      }
     }
   ],
+  "removed": [],
+  "changed": [],
   "summary": {
-    "added": 0,
+    "added": 37,
     "removed": 0,
-    "changed": 78
+    "changed": 0
   }
 }
