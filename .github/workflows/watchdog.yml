@@ -11,6 +11,9 @@ on:
   schedule:
     - cron: "0 2 * * *"      # 매일 11:00 KST -- 수집(00:10)보다 한참 뒤
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/watchdog.yml"   # 고치면 바로 자가 점검
 
 jobs:
   check:
