@@ -151,7 +151,8 @@ def cmd_backfill(args) -> int:
     periods = _months_between(args.from_, args.to)
     print(f"[{args.source}] 백필 {periods[0]} ~ {periods[-1]} ({len(periods)}개월)")
     results = pipeline.run_backfill(
-        source, periods, dry_run=args.dry_run, log=log
+        source, periods, dry_run=args.dry_run,
+        archive_months=args.archive, log=log,
     )
     ok = sum(1 for r in results if r.ok)
     total_records = sum(r.record_count for r in results)
@@ -348,8 +349,7 @@ def cmd_archive(args) -> int:
         gone = sum(r.evicted for r in results)
         bad = [e for r in results for e in r.errors]
         print(
-            f"
-[{name}] {len(results)}개월 · {rows:,}행 · {size/1024/1024:.1f}MB"
+            f"\n[{name}] {len(results)}개월 · {rows:,}행 · {size/1024/1024:.1f}MB"
             + (f" · DB 에서 {gone:,}행 비움" if gone else "")
         )
         for line in bad:
@@ -366,8 +366,7 @@ def cmd_restore(args) -> int:
     total = 0
     for month in _months_between(args.from_, args.to):
         total += query.restore(args.source, month, log=log)
-    print(f"
-되돌림: {total:,}행")
+    print(f"\n되돌림: {total:,}행")
     return EXIT_OK
 
 
@@ -433,6 +432,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--source", required=True)
     sp.add_argument("--from", dest="from_", required=True, metavar="YYYY-MM")
     sp.add_argument("--to", required=True, metavar="YYYY-MM")
+    sp.add_argument("--archive", action="store_true",
+                    help="받은 달을 아카이브 파일로 바로 씁니다 (과거 5년치를 채울 때)")
     sp.set_defaults(func=cmd_backfill)
 
     sp = common(sub.add_parser("sync", help="저장된 파일을 DB 로 재동기화"))

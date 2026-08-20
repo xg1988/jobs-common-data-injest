@@ -394,11 +394,15 @@ def run_backfill(
     periods: list[str],
     *,
     dry_run: bool = False,
+    archive_months: bool = False,
     log: Logger = _noop,
 ) -> list[RunResult]:
     """과거 채우기.
 
     일일 수집과 **다른 경로**입니다. latest 를 건드리지 않고 series/ 에만 씁니다.
+
+    archive_months 를 켜면 그 달을 아카이브 파일로도 바로 씁니다.
+    5년치를 채울 때 쓰는 길입니다.
     """
     if not source.supports_backfill:
         raise RuntimeError(f"{source.name} 소스는 백필을 지원하지 않습니다.")
@@ -471,6 +475,20 @@ def run_backfill(
                     },
                     schema_version=source.schema_version,
                 )
+
+        # 과거 달은 받자마자 '과거' 입니다. Supabase 를 거칠 이유가 없습니다.
+        # 5년치 1.5GB 는 무료 한도(500MB)에 안 들어가서, 넣었다 빼려고 해도
+        # 백필 도중에 멈춥니다.
+        if archive_months and not dry_run:
+            from ingest import archive
+
+            rows = source.db_rows(records, collected_at=raw_env["collected_at"])
+            written = archive.write_month_from_records(
+                source.name, period, rows, log=log
+            )
+            res.warnings.extend(written.errors)
+            if written.written:
+                res.written.append(_rel(archive.month_path(source.name, period)))
 
         res.status = "ok"
         log(f"[{source.name}] {period} -> {len(records)}건")

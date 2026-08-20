@@ -246,6 +246,56 @@ def archive_month(
     return result
 
 
+def write_month_from_records(
+    source: str, month: str, rows: list[dict], *, log=print
+) -> MonthResult:
+    """DB 를 거치지 않고 곧바로 아카이브 파일을 쓴다.
+
+    과거를 채울 때(backfill) 쓰는 길입니다. 5년치를 Supabase 에 넣었다가
+    도로 빼는 건 낭비이고, 애초에 500MB 에 안 들어갑니다 -- 백필 도중에
+    한도를 넘겨 멈춥니다.
+
+    이미 아카이브된 달을 다시 쓰면 **덮어씁니다**. 백필을 다시 돌리는 건
+    보통 "그때 덜 받았다" 는 뜻이라, 새로 받은 쪽이 맞습니다.
+    """
+    result = MonthResult(month=month, rows=len(rows))
+    if not rows:
+        result.skipped = "0건"
+        return result
+
+    rows = sorted(rows, key=lambda r: str(r.get("key", "")))
+    blob = _serialize(rows)
+    result.bytes = len(blob)
+    result.sha256 = _sha256(blob)
+
+    path = month_path(source, month)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_bytes(blob)
+    tmp.replace(path)
+    result.written = True
+
+    back = read_month(source, month)
+    if len(back) != result.rows:
+        result.errors.append(f"{month}: 행 수 불일치 {result.rows} vs 파일 {len(back)}")
+        return result
+
+    index = load_index(source)
+    index["months"][month] = {
+        "rows": result.rows,
+        "bytes": result.bytes,
+        "sha256": result.sha256,
+        "archived_at": storage.iso_utc(),
+        # DB 를 거치지 않았으니 '비웠다' 가 아니라 '처음부터 파일' 입니다.
+        # query 가 이 달을 파일에서 읽게 하려면 evicted 가 참이어야 합니다.
+        "evicted": True,
+        "from_backfill": True,
+    }
+    save_index(source, index)
+    log(f"  {month}  {result.rows:>7,}행  {result.bytes/1024:>7.0f}KB  -> {path.name}")
+    return result
+
+
 def evict_month(
     source: str,
     month: str,
