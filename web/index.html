@@ -32,6 +32,7 @@
   h1 { font-size:20px; margin:0 0 2px; letter-spacing:-.01em; }
   h2 { font-size:15px; margin:0 0 14px; letter-spacing:-.01em; }
   .sub { color:var(--dim); font-size:13px; margin:0 0 22px; }
+  .sub a { color:var(--accent); }
   .card {
     background:var(--panel); border:1px solid var(--line); border-radius:10px;
     padding:18px 20px; margin-bottom:16px;
@@ -93,6 +94,8 @@
   <h1>공공데이터 수집 현황</h1>
   <p class="sub">
     국토교통부 아파트 매매 실거래가 · <span id="updated">불러오는 중…</span>
+    · <a href="./search.html">실거래가 조회</a>
+    · <a href="./swagger.html">API 문서</a>
   </p>
 
   <!-- 1. 지금 써도 되나 -->
@@ -102,6 +105,7 @@
       <span class="status-meta" id="statusMeta">…</span>
     </div>
     <div id="statusAlert"></div>
+    <div class="note" id="scope">…</div>
     <div class="note" id="coverage">…</div>
   </div>
 
@@ -137,6 +141,7 @@
     <div class="card">
       <h2>지역별 <span class="pill" id="regionAsOf"></span></h2>
       <div class="scroll"><table id="regionTable"><tbody><tr><td>불러오는 중…</td></tr></tbody></table></div>
+      <div class="note" id="regionNote"></div>
     </div>
     <div class="card">
       <h2>최근 변화</h2>
@@ -324,22 +329,48 @@ function renderTrend(points) {
 }
 
 // ---- 5. 지역별 -----------------------------------------------------------
-const REGION = {
-  "11680":"강남구","11650":"서초구","11710":"송파구","11440":"마포구",
-  "11170":"용산구","11215":"광진구","11305":"강북구","11530":"구로구",
-};
+// 코드 -> 이름. regions.json 에서 읽습니다.
+//
+// 여기에 손으로 적어 두면 지역을 늘릴 때마다 두 벌이 어긋납니다.
+// 실제로 서울 8개 구가 박혀 있었는데, 전국 254개로 늘리면 나머지
+// 246개가 전부 "11110" 같은 숫자로만 보였을 것입니다.
+let REGION = {};
+
+async function loadRegionNames() {
+  try {
+    const doc = await (await fetch("./regions.json")).json();
+    for (const list of Object.values(doc.sido || {})) {
+      for (const r of list) REGION[r.code] = r.name;
+    }
+    return doc;
+  } catch {
+    return null;   // 이름을 못 읽어도 코드로는 보여 줍니다
+  }
+}
+//: 지역 표에 그릴 최대 줄 수. 전국 254개를 다 쏟으면 못 읽습니다.
+const REGION_TOP = 20;
+
 function renderRegions(point) {
   const by = point?.metrics?.by_region;
   $("regionAsOf").textContent = point ? point.as_of + " 계약분" : "";
   if (!by) { $("regionTable").innerHTML = `<tbody><tr><td>데이터 없음</td></tr></tbody>`; return; }
-  const rows = Object.entries(by)
+
+  const all = Object.entries(by)
     .map(([code,m]) => ({ code, name: REGION[code] ?? code, ...m }))
     .sort((a,b)=>b.deal_count-a.deal_count);
+  const rows = all.slice(0, REGION_TOP);
+
   $("regionTable").innerHTML =
     `<thead><tr><th>지역</th><th class="num">거래</th><th class="num">중앙가</th><th class="num">최고가</th></tr></thead>
      <tbody>${rows.map(r=>`<tr><td>${r.name}</td><td class="num">${nf(r.deal_count)}</td>
        <td class="num">${eok(r.price_manwon_median)}</td>
        <td class="num">${eok(r.price_manwon_max)}</td></tr>`).join("")}</tbody>`;
+
+  // 몇 개를 잘랐는지 말해야 합니다. 안 그러면 20개가 전부인 줄 압니다.
+  $("regionNote").innerHTML = all.length > REGION_TOP
+    ? `거래가 많은 <b>${REGION_TOP}개</b>만 보여줍니다 (전체 ${nf(all.length)}개 지역). `
+    + `나머지는 <a href="./search.html">조회 화면</a>에서 지역을 골라 보세요.`
+    : `이번 수집에서 거래가 있었던 <b>${nf(all.length)}개</b> 지역 전부입니다.`;
 }
 
 // ---- 6. 최근 변화 --------------------------------------------------------
@@ -380,6 +411,10 @@ function renderRuns(runs) {
 // ---- 시작 ----------------------------------------------------------------
 (async () => {
   try {
+    // 지역 이름을 먼저 읽습니다. 실패해도 코드로는 보여 주므로
+    // 화면 전체를 막지는 않습니다.
+    const regionDoc = await loadRegionNames();
+
     const [state, series, events, runs, totalR, cancelR] = await Promise.all([
       api(`mkt_source_state?source=eq.${SRC}&select=*`),
       api(`mkt_series_point?source=eq.${SRC}&select=*&order=as_of,collected_date`),
@@ -395,6 +430,7 @@ function renderRuns(runs) {
 
     if (!state.length) return fail("mkt_source_state 에 소스가 없습니다.");
     renderStatus(state[0]);
+    renderScope(regionDoc, series);
     renderKpis(total, canceled, events, state[0]);
     renderLag(series);
     renderTrend(series);
@@ -410,6 +446,35 @@ function renderRuns(runs) {
     fail(String(e.message || e));
   }
 })();
+
+// ---- 수집 범위 -----------------------------------------------------------
+//
+// "몇 개 지역을 조회하기로 했는가" 와 "실제로 몇 개에서 데이터가 왔는가"
+// 는 다릅니다. 둘을 나란히 보여 줘야 빠진 지역을 알아챌 수 있습니다.
+//
+// 행정구역이 개편되면 옛 코드는 에러가 아니라 조용히 0건을 돌려줍니다.
+// 설정에는 254개인데 데이터는 229개에서만 왔다면 그게 신호입니다.
+function renderScope(regionDoc, series) {
+  const box = document.getElementById("scope");
+  if (!box) return;
+
+  const configured = regionDoc?.region_count ?? null;
+  const latest = series.length ? series.reduce((a,b) =>
+    (b.as_of > a.as_of || (b.as_of === a.as_of && b.collected_date > a.collected_date)) ? b : a) : null;
+  const seen = Object.keys(latest?.metrics?.by_region || {}).length;
+
+  if (!configured) {
+    box.innerHTML = `데이터가 온 지역 <b>${nf(seen)}개</b>`;
+    return;
+  }
+  const missing = configured - seen;
+  box.innerHTML =
+    `조회 대상 <b>${nf(configured)}개</b> 시군구 · 이번에 데이터가 온 곳 <b>${nf(seen)}개</b>`
+  + (missing > 0
+      ? ` · <span class="pill">${nf(missing)}개는 0건</span> `
+      + `아파트가 없는 군 지역이면 정상입니다. 갑자기 늘었다면 행정구역 개편을 의심하세요.`
+      : "");
+}
 
 // ---- 담고 있는 기간 ------------------------------------------------------
 //
