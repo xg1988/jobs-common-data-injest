@@ -151,6 +151,7 @@ def run_source(
     *,
     run_date: str | None = None,
     dry_run: bool = False,
+    accept_scope_change: bool = False,
     log: Logger = _noop,
 ) -> RunResult:
     name = source.name
@@ -225,13 +226,26 @@ def run_source(
     # 조회 범위가 지난번과 달라졌는지 먼저 봅니다.
     # 범위를 넓히면 레코드 수가 몇 배로 뜁니다. 그걸 'API 가 깨졌다' 로
     # 읽으면 전국 전환 첫날 수집이 통째로 격리됩니다.
+    #
+    # 다만 **비교할 게 없는 경우**가 있습니다. `scope` 필드는 나중에 생겼고,
+    # 그 전에 쓰인 latest 에는 없습니다. 2026-08-21 전국 전환이 정확히 여기서
+    # 걸렸습니다 -- 탈출구는 있는데 이전 봉투에 지문이 없어 발동을 못 했고,
+    # 103,407건이 통째로 격리됐습니다. '모른다' 를 '같다' 로 읽은 탓입니다.
     scope = source.scope()
     previous_scope = (previous_env or {}).get("scope")
-    source.scope_changed = bool(
-        scope is not None and previous_scope is not None and scope != previous_scope
+    source.scope_unknown = bool(
+        scope is not None and previous_env is not None and previous_scope is None
     )
-    if source.scope_changed:
+    source.scope_changed = bool(
+        accept_scope_change
+        or (scope is not None and previous_scope is not None and scope != previous_scope)
+    )
+    if accept_scope_change:
+        log(f"[{name}] --accept-scope-change: 범위를 직접 바꿨다고 보고 레코드 수 급변을 통과시킵니다")
+    elif source.scope_changed:
         log(f"[{name}] 조회 범위가 바뀌었습니다: {_describe_scope_change(previous_scope, scope)}")
+    elif source.scope_unknown:
+        log(f"[{name}] 이전 수집 기록에 조회 범위가 없습니다 -- 범위 변경 여부를 판단할 수 없습니다")
 
     validation = source.validate(records, previous_records)
     validation = validation.merge(

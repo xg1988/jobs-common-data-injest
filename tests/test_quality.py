@@ -46,7 +46,7 @@ def check(records):
 
 def test_price_out_of_range_quarantines_only_that_record():
     records = [apt(price_manwon=180000 + i) for i in range(30)]
-    records.append(apt(price_manwon=50, apt_name="이상한거래"))  # 1000만원 미만
+    records.append(apt(price_manwon=50, apt_name="이상한거래"))  # 100만원 미만
 
     result = check(records)
 
@@ -413,3 +413,100 @@ def test_backfill_stops_when_the_quota_runs_out(tmp_storage, monkeypatch):
     assert len(results) == 3
     assert not results[-1].ok
     assert any("--from 2025-03 --to 2025-05" in ln for ln in lines)
+
+
+def test_a_cheap_rural_deal_is_kept_and_counted():
+    """동해시 발한동 22제곱미터 직거래 800만원 -- 실제로 있는 가격입니다.
+
+    서울만 볼 때는 1천만원 하한이 안전했지만, 전국에서는 매일 걸립니다.
+    격리가 쌓여 5% 를 넘으면 그날 수집이 통째로 버려집니다.
+    """
+    records = [apt(price_manwon=180000 + i) for i in range(30)]
+    records.append(apt(price_manwon=800, apt_name="대원", dong="발한동"))
+
+    result = check(records)
+
+    assert result.ok is True
+    assert result.quarantine == []          # 격리하지 않습니다
+    assert any("저가 거래 1건" in w for w in result.warnings)   # 대신 셉니다
+
+
+def test_a_price_below_the_parse_floor_is_still_quarantined():
+    """싼 것과 깨진 것은 다릅니다. 100만원 아래는 파싱 오류로 봅니다."""
+    records = [apt(price_manwon=180000 + i) for i in range(30)]
+    records.append(apt(price_manwon=7, apt_name="깨짐"))
+
+    result = check(records)
+
+    assert len(result.quarantine) == 1
+    assert "price_manwon" in result.quarantine[0]["reason"]
+
+
+# ---------------------------------------------------------------------------
+# 범위를 '모른다' 와 '같다' 는 다릅니다 (2026-08-21 전국 전환 사고)
+# ---------------------------------------------------------------------------
+
+
+class ScopedSource(FakeSource):
+    """조회 범위를 밝히는 소스. 실거래가처럼 지역 목록이 있는 경우."""
+
+    def __init__(self, records, *, regions, **kw):
+        super().__init__(records, **kw)
+        self._regions = regions
+
+    def scope(self):
+        return {"regions": sorted(self._regions)}
+
+
+def test_spike_error_tells_you_what_to_do_when_the_scope_is_unknown():
+    """'레코드 수 급변' 만 찍으면 로그를 봐도 다음 수를 알 수 없습니다."""
+    src = _Src()
+    src.scope_unknown = True
+
+    result = quality.run_common_checks(src, _records(103_407), _records(2_850))
+
+    assert not result.ok
+    assert any("--accept-scope-change" in e for e in result.errors)
+
+
+def test_expansion_is_quarantined_when_the_old_latest_has_no_scope(tmp_storage):
+    """실제로 일어난 일: 탈출구는 있는데 이전 봉투에 지문이 없었습니다.
+
+    seed_latest 는 scope 없이 씁니다 -- scope 필드가 생기기 전에 쓰인
+    latest 와 같은 모양입니다.
+    """
+    seed_latest([apt(price_manwon=180000 + i) for i in range(100)])
+
+    result = pipeline.run_source(
+        ScopedSource(
+            [apt(price_manwon=180000 + i) for i in range(1_000)],
+            regions=[f"{c}" for c in range(11110, 11364)],
+        ),
+        run_date="2026-08-19",
+    )
+
+    assert result.status == "quarantined"
+    assert any("--accept-scope-change" in e for e in result.errors)
+    assert storage.read_latest("fake")["record_count"] == 100   # 지켜집니다
+
+
+def test_accept_scope_change_lets_the_expansion_through(tmp_storage):
+    """사람이 '내가 범위를 넓혔다' 고 말하면 통과시킵니다.
+
+    그리고 이번에 쓴 봉투에는 scope 가 남으므로, 다음부터는 플래그 없이
+    스스로 구분합니다.
+    """
+    seed_latest([apt(price_manwon=180000 + i) for i in range(100)])
+    regions = [f"{c}" for c in range(11110, 11364)]
+
+    result = pipeline.run_source(
+        ScopedSource([apt(price_manwon=180000 + i) for i in range(1_000)],
+                     regions=regions),
+        run_date="2026-08-19",
+        accept_scope_change=True,
+    )
+
+    assert result.status == "ok"
+    saved = storage.read_latest("fake")
+    assert saved["record_count"] == 1_000
+    assert saved["scope"] == {"regions": sorted(regions)}

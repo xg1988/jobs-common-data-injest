@@ -72,6 +72,11 @@ class Source(ABC):
     #: 달라졌다는 뜻입니다. 이때는 레코드 수가 크게 변하는 게 정상입니다.
     scope_changed: bool = False
 
+    #: 이전 수집 기록에 조회 범위가 없어 **비교 자체가 불가능**했다는 뜻.
+    #: scope_changed=False 와는 다릅니다 -- 저쪽은 "같다", 이쪽은 "모른다"
+    #: 입니다. 모를 때는 사람에게 무엇을 해야 할지 알려 줘야 합니다.
+    scope_unknown: bool = False
+
     def scope(self) -> dict | None:
         """이번 수집이 **무엇을** 조회했는지. 기본은 없음.
 

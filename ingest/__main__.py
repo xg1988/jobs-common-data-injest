@@ -105,7 +105,12 @@ def cmd_run(args) -> int:
         try:
             source = registry.create(name)
             results.append(
-                pipeline.run_source(source, dry_run=args.dry_run, log=log)
+                pipeline.run_source(
+                    source,
+                    dry_run=args.dry_run,
+                    accept_scope_change=args.accept_scope_change,
+                    log=log,
+                )
             )
         except Exception as exc:  # noqa: BLE001
             print(f"[{name}] 치명적 오류: {type(exc).__name__}: {exc}", flush=True)
@@ -426,6 +431,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp = common(sub.add_parser("run", help="일일 수집"))
     sp.add_argument("--source")
     sp.add_argument("--all", action="store_true")
+    sp.add_argument(
+        "--accept-scope-change", action="store_true",
+        help="조회 범위를 직접 바꿨음. 레코드 수 급변을 격리하지 않습니다 "
+             "(예: 서울 8개 구 -> 전국 254개)")
     sp.set_defaults(func=cmd_run)
 
     sp = common(sub.add_parser("backfill", help="과거 채우기"))

@@ -22,7 +22,18 @@ REMOVED_RATIO_WARN = 0.05
 
 # ---- 실거래가 전용 범위 ---------------------------------------------------
 
-PRICE_MANWON_MIN = 1_000          # 1천만원
+# 하한은 '파싱이 깨졌나' 를 보는 값이지 '싸다' 를 보는 값이 아닙니다.
+#
+# 서울 8개 구만 볼 때는 1천만원이 안전한 하한이었습니다. 전국으로 넓히니
+# 바로 걸렸습니다 -- 동해시 발한동 22㎡ 1990년식 직거래 800만원(2026-06-08)이
+# 격리됐습니다. 실제로 있는 가격대입니다. 지방 소형 아파트와 가족 간
+# 직거래에서는 더 낮은 값도 나옵니다.
+#
+# 격리는 공짜가 아닙니다. 전국 기준으로 이런 게 매일 쌓이면 격리 비율 5%
+# (QUARANTINE_RATIO_LIMIT) 를 넘겨 그날 수집이 통째로 버려집니다.
+PRICE_MANWON_MIN = 100            # 100만원 -- 이 아래는 파싱 오류로 봅니다
+#: 격리하지는 않되 세어서 알리는 선. "싼 게 아니라 이상한 것" 을 사람이 볼 수 있게.
+PRICE_MANWON_SUSPECT_MIN = 1_000  # 1천만원
 PRICE_MANWON_MAX = 10_000_000     # 1000억원
 AREA_M2_MIN = 10.0
 AREA_M2_MAX = 500.0
@@ -85,10 +96,20 @@ def run_common_checks(
                         "-- 조회 범위가 바뀌었으니 정상입니다"
                     )
                 else:
-                    errors.append(
+                    msg = (
                         f"레코드 수 급변: {prev_n} -> {curr_n} ({delta:+.1%}, "
                         f"허용 ±{RECORD_COUNT_CHANGE_LIMIT:.0%})"
                     )
+                    # 범위 비교가 아예 불가능했다면, 사람에게 다음 수를
+                    # 알려 줘야 합니다. 이 한 줄이 없으면 로그만 보고는
+                    # 무엇을 해야 할지 알 수 없습니다.
+                    if getattr(source, "scope_unknown", False):
+                        msg += (
+                            " -- 이전 기록에 조회 범위가 없어 '범위를 넓힌 것' 과 "
+                            "'API 가 깨진 것' 을 구분할 수 없습니다. 범위를 직접 "
+                            "바꿨다면 `--accept-scope-change` 로 다시 실행하세요"
+                        )
+                    errors.append(msg)
 
     return ValidationResult(
         ok=not errors, errors=errors, warnings=warnings, quarantine=quarantine
@@ -155,6 +176,7 @@ def check_apt_trade_records(
     passed: list[dict] = []
     quarantine: list[dict] = []
     warnings: list[str] = []
+    suspect_low = 0
 
     for rec in records:
         reasons: list[str] = []
@@ -164,6 +186,8 @@ def check_apt_trade_records(
             PRICE_MANWON_MIN <= price <= PRICE_MANWON_MAX
         ):
             reasons.append(f"price_manwon 범위 이탈: {price!r}")
+        elif price < PRICE_MANWON_SUSPECT_MIN:
+            suspect_low += 1
 
         area = rec.get("area_m2")
         if not isinstance(area, (int, float)) or not (
@@ -203,6 +227,11 @@ def check_apt_trade_records(
     if quarantine:
         result.warnings.append(
             f"범위 이탈 레코드 {len(quarantine)}건 격리 (as_of={as_of})"
+        )
+    if suspect_low:
+        result.warnings.append(
+            f"저가 거래 {suspect_low}건 "
+            f"({PRICE_MANWON_SUSPECT_MIN:,}만원 미만) -- 격리하지 않았습니다"
         )
     return apply_quarantine_ratio_rule(result, len(records))
 
