@@ -22,6 +22,10 @@ declare
   latest    jsonb;
   series    jsonb;
   diff_doc  jsonb;
+  index_doc jsonb;
+  shard     jsonb;
+  region    text;
+  seen      bigint := 0;
   run_date  date;
   n         bigint;
 begin
@@ -80,25 +84,85 @@ begin
     rows_affected := 0; return next; return;
   end if;
 
-  with rec as (
-    select (latest ->> 'collected_at')::timestamptz as ts,
-           jsonb_array_elements(latest -> 'records') as r
-  )
-  insert into public.mkt_apt_trade (
-    key, region_code, dong, apt_name, area_m2, floor, built_year,
-    deal_date, price_manwon, canceled, canceled_date, deal_type,
-    first_seen_at, last_seen_at)
-  select r ->> '_key', r ->> 'region_code', r ->> 'dong', r ->> 'apt_name',
-         (r ->> 'area_m2')::numeric, (r ->> 'floor')::int, (r ->> 'built_year')::int,
-         (r ->> 'deal_date')::date, (r ->> 'price_manwon')::int,
-         (r ->> 'canceled')::boolean, (r ->> 'canceled_date')::date,
-         r ->> 'deal_type', ts, ts
-  from rec
-  on conflict (key) do update set
-    canceled = excluded.canceled, canceled_date = excluded.canceled_date,
-    deal_type = excluded.deal_type, last_seen_at = excluded.last_seen_at;
-  get diagnostics n = row_count;
-  step := 'apt_trade'; rows_affected := n; return next;
+  -- 전국이면 합본 파일을 만들지 않습니다. 40,000건이 넘으면 수집기가
+  -- 지역별 파일로 쪼개고(`ingest/storage.py` LATEST_INLINE_LIMIT), 합본에는
+  -- `sharded: true` 와 record_count 만 남고 records 는 **빈 배열**이 됩니다.
+  --
+  -- 이걸 모르고 그대로 밀어 넣으면 0건이 들어옵니다. 그런데 상태는 ok 이고
+  -- collection_run 에는 103,407건이 기록됩니다 -- DB 에는 어제 것이 그대로인데
+  -- 소비자는 "오늘 전국 데이터가 들어왔다" 로 읽습니다. 조용히 틀리는 게
+  -- 제일 나쁩니다. 그래서 조각을 하나씩 받아 옵니다.
+  if coalesce((latest ->> 'sharded')::boolean, false) then
+    select content::jsonb into index_doc
+    from extensions.http_get(base || '/data/latest/molit_apt_trade/index.json');
+
+    if index_doc -> 'regions' is null then
+      step := 'aborted (sharded 인데 index.json 을 못 읽음)';
+      rows_affected := 0; return next; return;
+    end if;
+
+    n := 0;
+    for region in select jsonb_object_keys(index_doc -> 'regions') order by 1 loop
+      select content::jsonb into shard
+      from extensions.http_get(
+        base || '/data/latest/molit_apt_trade/' || region || '.json');
+
+      -- 여기서부터는 이미 쓴 게 있습니다. 그냥 멈추면 절반만 들어간 채로
+      -- 커밋됩니다. 예외로 던져서 통째로 되돌립니다.
+      if shard -> 'records' is null then
+        raise exception '지역 파일을 못 읽음: % (index 에는 있음)', region;
+      end if;
+
+      with rec as (
+        select (shard ->> 'collected_at')::timestamptz as ts,
+               jsonb_array_elements(shard -> 'records') as r
+      )
+      insert into public.mkt_apt_trade (
+        key, region_code, dong, apt_name, area_m2, floor, built_year,
+        deal_date, price_manwon, canceled, canceled_date, deal_type,
+        first_seen_at, last_seen_at)
+      select r ->> '_key', r ->> 'region_code', r ->> 'dong', r ->> 'apt_name',
+             (r ->> 'area_m2')::numeric, (r ->> 'floor')::int, (r ->> 'built_year')::int,
+             (r ->> 'deal_date')::date, (r ->> 'price_manwon')::int,
+             (r ->> 'canceled')::boolean, (r ->> 'canceled_date')::date,
+             r ->> 'deal_type', ts, ts
+      from rec
+      on conflict (key) do update set
+        canceled = excluded.canceled, canceled_date = excluded.canceled_date,
+        deal_type = excluded.deal_type, last_seen_at = excluded.last_seen_at;
+
+      get diagnostics n = row_count;
+      seen := seen + jsonb_array_length(shard -> 'records');
+    end loop;
+
+    -- 조각을 다 합치면 meta 와 같아야 합니다. 다르면 받다 만 것입니다.
+    if seen <> (entry ->> 'record_count')::int then
+      raise exception '조각 합계 불일치: % vs meta %', seen, entry ->> 'record_count';
+    end if;
+
+    step := 'apt_trade (' || (index_doc ->> 'region_count') || '개 지역 파일)';
+    rows_affected := seen; return next;
+  else
+    with rec as (
+      select (latest ->> 'collected_at')::timestamptz as ts,
+             jsonb_array_elements(latest -> 'records') as r
+    )
+    insert into public.mkt_apt_trade (
+      key, region_code, dong, apt_name, area_m2, floor, built_year,
+      deal_date, price_manwon, canceled, canceled_date, deal_type,
+      first_seen_at, last_seen_at)
+    select r ->> '_key', r ->> 'region_code', r ->> 'dong', r ->> 'apt_name',
+           (r ->> 'area_m2')::numeric, (r ->> 'floor')::int, (r ->> 'built_year')::int,
+           (r ->> 'deal_date')::date, (r ->> 'price_manwon')::int,
+           (r ->> 'canceled')::boolean, (r ->> 'canceled_date')::date,
+           r ->> 'deal_type', ts, ts
+    from rec
+    on conflict (key) do update set
+      canceled = excluded.canceled, canceled_date = excluded.canceled_date,
+      deal_type = excluded.deal_type, last_seen_at = excluded.last_seen_at;
+    get diagnostics n = row_count;
+    step := 'apt_trade'; rows_affected := n; return next;
+  end if;
 
   -- 3) 시계열 ---------------------------------------------------------------
   select content::jsonb into series

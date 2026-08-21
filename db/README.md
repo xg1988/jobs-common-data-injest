@@ -33,3 +33,25 @@ order by d.start_time desc limit 10;
 
 `schema.sql` -> `pull_from_mirror.sql` 순서로 실행하세요.
 둘 다 여러 번 돌려도 안전합니다 (`if not exists` / `create or replace`).
+
+적용한 뒤 한 번 돌려 보세요. 단계마다 몇 행이 들어갔는지 나옵니다.
+
+```sql
+select * from public.mkt_pull_from_mirror();
+```
+
+## 조각난 `latest` 를 읽습니다
+
+레코드가 40,000건을 넘으면 수집기가 합본을 만들지 않고 지역별 파일로
+쪼갭니다 (`ingest/storage.py` 의 `LATEST_INLINE_LIMIT`). 이때 합본 파일은
+남아 있지만 `records` 가 **빈 배열**이고 `sharded: true` 가 붙습니다.
+
+그걸 모르고 그대로 밀어 넣으면 0건이 들어옵니다. 그런데 `meta` 는 ok 이고
+`mkt_collection_run` 에는 103,407건이 기록됩니다 — **DB 에는 어제 것이 그대로인데
+소비자는 "오늘 전국 데이터가 들어왔다" 로 읽습니다.** 조용히 틀리는 게 제일
+나쁩니다.
+
+그래서 `sharded` 면 `index.json` 을 읽고 지역 파일을 하나씩 받아 옵니다
+(전국이면 254회). 마지막에 조각 합계와 `meta.record_count` 를 대조하고,
+다르면 `raise exception` 으로 **그때까지 넣은 것까지 전부 되돌립니다.**
+절반만 들어간 채로 커밋되면 그게 제일 찾기 어렵습니다.
