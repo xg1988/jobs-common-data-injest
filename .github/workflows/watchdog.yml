@@ -9,7 +9,10 @@ name: watchdog
 
 on:
   schedule:
-    - cron: "0 2 * * *"      # 매일 11:00 KST -- 수집(00:10)보다 한참 뒤
+    # 밤에 난 사고를 반나절 뒤에 아는 일이 없도록 두 번 봅니다.
+    # 2026-08-21 전국 전환이 00:10 에 격리됐는데 알림은 11:00 이었습니다.
+    - cron: "30 16 * * *"    # 매일 01:30 KST -- 수집(00:10)·DB 갱신(00:40) 직후
+    - cron: "0 2 * * *"      # 매일 11:00 KST -- 사람이 깨어 있는 시간에 한 번 더
   workflow_dispatch:
   push:
     paths:
@@ -26,6 +29,7 @@ jobs:
           python3 - <<'PY'
           import json, sys
           from datetime import datetime, timezone, timedelta
+          from pathlib import Path
 
           meta = json.load(open("meta.json", encoding="utf-8"))
           problems = []
@@ -53,6 +57,30 @@ jobs:
                           f"{name}: {age.days}일째 수집 성공 없음 (마지막 {last})")
               else:
                   problems.append(f"{name}: 성공한 적이 없음")
+
+          # 아카이브는 사람이 손으로 돌립니다 (docs/SCHEDULE.md 7-1 -- 관리자 키를
+          # VPS 에 두지 않으려고 일부러 자동화하지 않았습니다). 잊으면 조용히
+          # 무료 한도가 찹니다. 전국 기준 19개월입니다.
+          #
+          # 이건 '틀린 데이터' 가 아니라 '곧 부딪힐 벽' 이라 경고로만 냅니다.
+          # 여기서 실패시키면 매일 메일이 와서 진짜 사고를 가립니다.
+          HOT_MONTHS = 12
+          today = datetime.now(timezone(timedelta(hours=9))).date()
+          cutoff = today.replace(day=1)
+          for _ in range(HOT_MONTHS):
+              cutoff = (cutoff - timedelta(days=1)).replace(day=1)
+
+          for name in meta.get("sources", {}):
+              path = Path("data/archive") / name / "index.json"
+              months = (sorted(json.load(open(path, encoding="utf-8")).get("months", {}))
+                        if path.exists() else [])
+              if not months:
+                  print(f"::warning title=아카이브 안 함::{name}: 아카이브한 적이 없습니다. "
+                        f"DB 가 계속 커집니다 -- "
+                        f"ingest archive --source {name} --hot-months {HOT_MONTHS}")
+              elif months[-1] < cutoff.strftime("%Y-%m"):
+                  print(f"::warning title=아카이브 밀림::{name}: 마지막 아카이브가 "
+                        f"{months[-1]} 입니다. {cutoff:%Y-%m} 이전 달이 아직 DB 에 있습니다")
 
           if problems:
               print("\n=== 문제 ===")

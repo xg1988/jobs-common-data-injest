@@ -246,13 +246,53 @@ DB 를 못 쓰는 상황을 위한 대체 경로입니다. 원본(`raw/`)은 여
 | 경로 | 내용 |
 |---|---|
 | `$RAW/meta.json` | `mkt_source_state` 와 같은 계약 |
-| `$RAW/data/latest/molit_apt_trade.json` | 정규화 스냅샷 (약 1.3 MB) |
+| `$RAW/data/latest/molit_apt_trade.json` | 정규화 스냅샷 — **전국에서는 비어 있습니다** (아래) |
+| `$RAW/data/latest/molit_apt_trade/index.json` | 지역별 파일 목록 |
+| `$RAW/data/latest/molit_apt_trade/{지역코드}.json` | 그 지역만 (약 200 KB) |
 | `$RAW/data/series/molit_apt_trade.json` | 시계열 |
 | `$RAW/data/diff/molit_apt_trade/{날짜}.json` | 전일 대비 변화 |
 | `$RAW/data/raw/molit_apt_trade/{날짜}.json.gz` | **원본** — DB 에 없습니다 |
+| `$RAW/data/archive/molit_apt_trade/{달}.ndjson.gz` | DB 에서 내보낸 오래된 달 |
 | `$RAW/data/quarantine/molit_apt_trade/{날짜}.json` | 격리된 레코드 |
 
 파일은 통째로만 받을 수 있습니다. 부분 조회가 필요하면 DB 를 쓰세요.
+
+### ⚠️ 합본이 없을 때가 있습니다 — `sharded` 를 먼저 보세요
+
+레코드가 40,000건을 넘으면 합본을 만들지 않습니다. 전국이면 한 파일이 45 MB 가
+넘고, 그걸 매일 커밋하면 저장소가 감당하지 못합니다.
+
+이때도 `data/latest/molit_apt_trade.json` 은 **있습니다.** 다만 `records` 가
+빈 배열이고 `sharded: true` 가 붙습니다. 지우지 않는 이유는, 지우면 소비자가
+404 를 받고 옛 캐시를 계속 쓰기 때문입니다. **빈 배열을 "오늘은 거래가 없었다"
+로 읽지 마세요.**
+
+```json
+{
+  "record_count": 103407,
+  "sharded": true,
+  "records": [],
+  "notes": "레코드가 103,407건이라 합본을 만들지 않습니다. data/latest/molit_apt_trade/index.json 을 읽고 필요한 지역 파일만 받으세요."
+}
+```
+
+```python
+env = get(f"{RAW}/data/latest/{src}.json")
+if env.get("sharded"):
+    index = get(f"{RAW}/data/latest/{src}/index.json")   # {"regions": {"11680": {...}}, ...}
+    records = [r for code in index["regions"]
+                 for r in get(f"{RAW}/data/latest/{src}/{code}.json")["records"]]
+else:
+    records = env["records"]
+```
+
+```bash
+# 강남구만 -- 전국 전체를 받을 필요가 없습니다
+curl -s "$RAW/data/latest/molit_apt_trade/11680.json" | jq '.record_count'
+```
+
+`index.json` 의 지역별 `record_count` 를 합하면 `meta.json` 의 `record_count` 와
+같아야 합니다. 다르면 받다 만 것이니 쓰지 마세요.
 
 봉투(envelope) 구조:
 

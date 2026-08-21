@@ -34,7 +34,6 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-
 from ingest import db, storage
 
 #: DB 에 남겨 둘 최근 개월 수. 이보다 오래된 달이 아카이브 대상입니다.

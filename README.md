@@ -100,12 +100,48 @@ curl "$BASE/mkt_series_point?source=eq.molit_apt_trade&order=as_of" -H "apikey: 
 
 | 경로 | 내용 |
 |---|---|
-| `data/latest/{source}.json` | 최신 정규화 스냅샷 |
+| `data/latest/{source}.json` | 최신 정규화 스냅샷 (작을 때만 — 아래 참고) |
+| `data/latest/{source}/index.json` | 지역별 파일 목록 + 각 파일의 레코드 수 |
+| `data/latest/{source}/{지역코드}.json` | 그 지역만 |
 | `data/series/{source}.json` | 시점별 요약 누적 |
 | `data/diff/{source}/{날짜}.json` | 전일 대비 변화 |
 | `data/raw/{source}/{날짜}.json.gz` | **원본** (정규화 전, gzip) — DB 에는 없습니다 |
+| `data/archive/{source}/{달}.ndjson.gz` | DB 에서 내보낸 오래된 달 ([ARCHIVE.md](docs/ARCHIVE.md)) |
 | `data/quarantine/{source}/{날짜}.json` | 검사 실패분 |
 | `meta.json` | 소스별 상태 |
+
+#### 합본이 없을 때가 있습니다 — 먼저 `sharded` 를 보세요
+
+40,000건이 넘으면 합본을 만들지 않습니다. 전국이면 한 파일이 45 MB 가 넘고,
+그걸 **매일** 커밋하면 git 히스토리가 1년에 수 GB 가 됩니다. 한 지역만 보려는
+소비자가 전부 내려받아야 하는 것도 낭비입니다.
+
+이때 `data/latest/{source}.json` 은 남아 있지만 `records` 가 **빈 배열**이고
+`sharded: true` 가 붙습니다. 그대로 읽으면 "오늘은 거래가 없었나 보다" 로
+잘못 읽힙니다. 반드시 확인하세요.
+
+```bash
+RAW=https://raw.githubusercontent.com/xg1988/jobs-common-data-injest/main
+
+# 무엇이 있나
+curl -s "$RAW/data/latest/molit_apt_trade/index.json" | jq '.region_count, .record_count'
+
+# 강남구만
+curl -s "$RAW/data/latest/molit_apt_trade/11680.json" | jq '.record_count'
+```
+
+```python
+env = get(f"{RAW}/data/latest/{src}.json")
+if env.get("sharded"):                      # 합본이 없다는 뜻
+    index = get(f"{RAW}/data/latest/{src}/index.json")
+    records = [r for code in index["regions"]
+                 for r in get(f"{RAW}/data/latest/{src}/{code}.json")["records"]]
+else:
+    records = env["records"]
+```
+
+지역을 골라 읽을 거라면 미러보다 **DB(PostgREST)가 낫습니다** — 필터가 서버에서
+돕니다.
 
 ### `collected_at` 과 `as_of` 는 다릅니다
 
@@ -224,13 +260,15 @@ diff 엔진은 append형·update형을 구분하지 않습니다. 짝짓기는 `
 - [x] 이틀치 diff 생성 — `ingest diff --from --to` 로 실데이터 검증 (`+30 -0 ~3`)
 - [x] API 실패 시 `latest` 미덮어쓰기
 - [x] 품질 검사 실패분 `quarantine/` 격리
-- [x] `pytest` 전부 통과 (65개)
+- [x] `pytest` 전부 통과 (117개)
 - [x] GitHub 저장소 푸시 + 익명 읽기 확인
 - [x] 백필 2024-01 ~ 2026-07 (31개월, 58,486건)
 - [x] DB(Supabase) 적재 + PostgREST 부분 조회 확인
 - [x] **매일 자동 실행** — VPS cron 00:10 KST + Supabase pg_cron 00:40 KST
-- [ ] 실패 알림 (메일·슬랙 등)
-- [ ] 지역 확대
+- [x] 실패 알림 — 감시견(`watchdog.yml`)이 하루 두 번 `meta.json` 을 보고,
+      이상하면 워크플로가 실패해 GitHub 이 메일을 보냅니다
+- [x] 지역 확대 — 전국 254개 시군구 (2026-08-20)
+- [ ] 월 1회 아카이브를 실제로 한 번 돌리기 (DB 는 12개월만 두는 설계입니다)
 
 ### 첫 실수집 결과 (2026-08-19)
 
@@ -246,12 +284,53 @@ diff 엔진은 append형·update형을 구분하지 않습니다. 짝짓기는 `
 마지막 줄이 `collected_at` 과 `as_of` 를 나눈 이유입니다. 8월은 아직 신고가
 안 들어와서 148건뿐입니다. 이걸 "거래 급감"으로 읽으면 안 됩니다.
 
+### 전국 전환 첫날은 실패했습니다 (2026-08-21)
+
+| 항목 | 값 |
+|---|---|
+| 받은 레코드 | 103,407건 (254개 시군구 × 최근 3개월) |
+| 결과 | **통째로 격리** — `latest` 는 서울 2,850건 그대로 |
+| 남은 에러 | `레코드 수 급변: 2850 -> 103407 (+3528.3%, 허용 ±30%)` |
+
+레코드 수 급변 검사에는 **이미 탈출구가 있었습니다** — 조회 범위가 바뀐 걸
+알면 경고로 낮춥니다. 그런데 범위를 저장하는 `scope` 필드가 그 검사보다
+나중에 생겨서, 그때 남아 있던 `latest` 에는 지문이 없었습니다. 비교할 게
+없으니 코드는 "범위가 같다" 로 읽었고, 정상적인 확대가 사고로 잡혔습니다.
+
+**'모른다' 를 '같다' 로 읽은 것**이 원인입니다. 지금은 셋을 구분합니다.
+
+| 이전 범위 | 판단 |
+|---|---|
+| 있고, 같다 | 급변은 에러 |
+| 있고, 다르다 | 급변은 정상 (경고) |
+| **없다 (모른다)** | 에러 — 다만 `--accept-scope-change` 로 다시 실행하라고 알려 줍니다 |
+
+범위를 사람이 직접 넓혔을 때는 사람이 그렇다고 말해 줍니다. 코드가 알아서
+추측하지 않습니다.
+
+```bash
+python -m ingest run --source molit_apt_trade --accept-scope-change --verbose
+```
+
+한 번 성공하면 봉투에 `scope` 가 남아 다음부터는 플래그 없이 구분합니다.
+
+같이 나온 것 두 가지:
+
+- **가격 하한이 서울 기준이었습니다.** 동해시 발한동 22㎡ 직거래 800만원이
+  격리됐습니다. 실제로 있는 가격입니다. 하한을 100만원(파싱 오류 선)으로
+  내리고, 1천만원 미만은 격리 대신 **세어서 알립니다**.
+- **`_key` 충돌 2,557건 (2.5%)** — 서울만 볼 때 1.8% 였습니다.
+
 ### 저장 크기
 
-`raw/` 는 gzip 입니다 — 하루치 1,916 KB → **80 KB**. 사람이 재처리할 때만
-읽으므로 압축해도 됩니다. `latest`/`series`/`diff` 는 소비자가
-`raw.githubusercontent.com` 으로 직접 읽어야 해서 평문으로 둡니다
-(`latest` 1.3 MB, `series` 4 KB).
+`raw/` 는 gzip 입니다 — 서울 8개 구 기준 하루치 1,916 KB → **80 KB**.
+전국은 하루 **2.9 MB** 입니다. 사람이 재처리할 때만 읽으므로 압축해도 됩니다.
+
+`latest` 는 전국이면 한 파일이 45 MB 가 넘어서, 40,000건을 넘으면 지역별로
+쪼갭니다 (위 "합본이 없을 때가 있습니다"). `series`/`diff` 는 소비자가
+`raw.githubusercontent.com` 으로 직접 읽어야 해서 평문으로 둡니다.
+
+5년치를 어디에 담는지는 [docs/STORAGE.md](docs/STORAGE.md) 에 있습니다.
 
 ---
 
