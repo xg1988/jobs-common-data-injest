@@ -178,3 +178,38 @@ def test_sync_pushes_saved_files_without_calling_the_api(tmp_storage, db_env):
     assert written == {"records": 20, "series": 1, "state": 1}
     for route in routes.values():
         assert route.called
+
+
+# ---------------------------------------------------------------------------
+# 주소·키를 어디서 읽나 -- DB 를 옮겨도 코드가 안 바뀌게
+# ---------------------------------------------------------------------------
+
+
+def test_new_env_names_win(monkeypatch):
+    """VPS 로 옮기면 DB_API_* 를 씁니다."""
+    monkeypatch.setenv("DB_API_URL", "http://127.0.0.1:3000")
+    monkeypatch.setenv("DB_API_KEY", "vps-key")
+    monkeypatch.setenv("SUPABASE_URL", "https://old.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "old-key")
+
+    assert db._settings() == ("http://127.0.0.1:3000", "vps-key")
+
+
+def test_old_env_names_still_work(monkeypatch):
+    """이미 돌고 있는 서버의 .env 를 안 건드려도 되게."""
+    monkeypatch.delenv("DB_API_URL", raising=False)
+    monkeypatch.delenv("DB_API_KEY", raising=False)
+    monkeypatch.setenv("SUPABASE_URL", "https://old.supabase.co/")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "old-key")
+
+    assert db._settings() == ("https://old.supabase.co", "old-key")
+
+
+def test_half_configured_is_off(monkeypatch):
+    """주소만 있고 키가 없으면 켜진 척하지 않습니다."""
+    monkeypatch.setenv("DB_API_URL", "http://127.0.0.1:3000")
+    monkeypatch.delenv("DB_API_KEY", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+
+    assert db._settings() is None
+    assert db.enabled() is False

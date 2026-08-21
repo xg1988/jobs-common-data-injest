@@ -1,12 +1,20 @@
-"""Supabase(PostgREST) 로 쓰기.
+"""PostgREST 로 쓰기. 어디에 떠 있든 상관하지 않습니다.
 
 왜 REST 인가
     psycopg 를 쓰면 의존성이 늘고 Actions 에서 DB 포트로 나가야 합니다.
     PostgREST 는 HTTPS 라 어디서든 열리고, httpx 하나면 됩니다.
 
+    이 덕분에 DB 를 Supabase 에서 VPS 로 옮겨도 이 파일은 안 바뀝니다.
+    주소와 키만 갈아 끼우면 됩니다 (docs/VPS_DB.md).
+
+어디를 보나
+    DB_API_URL / DB_API_KEY 를 먼저 봅니다. 없으면 예전 이름
+    (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY) 으로 물러섭니다 --
+    이미 돌고 있는 VPS 의 .env 를 안 건드려도 되게.
+
 권한
-    쓰기는 `SUPABASE_SERVICE_ROLE_KEY` 로만 합니다 (RLS 우회).
-    읽기는 publishable 키로 누구나 가능합니다 -- 소비자가 쓰는 경로입니다.
+    쓰기 키는 RLS 를 우회하는 관리자 키입니다.
+    읽기는 공개 키로 누구나 가능합니다 -- 소비자가 쓰는 경로입니다.
 
 설정이 없으면 조용히 꺼집니다. 파일 저장만으로도 파이프라인은 그대로 돕니다.
 """
@@ -31,10 +39,23 @@ class DbError(RuntimeError):
     pass
 
 
+#: (새 이름, 예전 이름). 예전 이름은 Supabase 를 쓰던 시절의 것입니다.
+URL_ENV = ("DB_API_URL", "SUPABASE_URL")
+KEY_ENV = ("DB_API_KEY", "SUPABASE_SERVICE_ROLE_KEY")
+
+
+def _first_env(names: tuple[str, ...]) -> str:
+    for n in names:
+        v = (os.environ.get(n) or "").strip()
+        if v:
+            return v
+    return ""
+
+
 def _settings() -> tuple[str, str] | None:
     storage.load_dotenv()
-    url = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
-    key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    url = _first_env(URL_ENV).rstrip("/")
+    key = _first_env(KEY_ENV)
     if not url or not key:
         return None
     return url, key
@@ -46,8 +67,8 @@ def enabled() -> bool:
 
 def why_disabled() -> str:
     return (
-        "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 가 없어 DB 쓰기를 건너뜁니다. "
-        "(.env.example 참고)"
+        f"{URL_ENV[0]} / {KEY_ENV[0]} 가 없어 DB 쓰기를 건너뜁니다. "
+        f"(예전 이름 {URL_ENV[1]} / {KEY_ENV[1]} 도 봅니다. .env.example 참고)"
     )
 
 
