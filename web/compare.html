@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>지역 비교 — jobs-common-data-injest</title>
+<style>
+  :root {
+    --bg:#f7f7f5; --panel:#fff; --line:#e3e3de; --ink:#1a1a17; --dim:#6b6b63;
+    --ok:#1a7f4b; --warn:#a8620a; --bad:#b3261e; --accent:#2f5fd0; --accent2:#c26b1a;
+    --soft:#f0f0ec;
+    --s1:#2f5fd0; --s2:#c26b1a; --s3:#1a7f4b; --s4:#b3261e; --s5:#7d3fb3; --s6:#0f7f96;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#16161a; --panel:#1e1e23; --line:#31313a; --ink:#ececE8; --dim:#9a9aa2;
+      --ok:#4ec98a; --warn:#e0a24a; --bad:#f2796f; --accent:#7ba3f0; --accent2:#e8a45c;
+      --soft:#26262d;
+      --s1:#7ba3f0; --s2:#e8a45c; --s3:#4ec98a; --s4:#f2796f; --s5:#bb8ae8; --s6:#5cc3d8;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#16161a; --panel:#1e1e23; --line:#31313a; --ink:#ececE8; --dim:#9a9aa2;
+    --ok:#4ec98a; --warn:#e0a24a; --bad:#f2796f; --accent:#7ba3f0; --accent2:#e8a45c;
+    --soft:#26262d;
+    --s1:#7ba3f0; --s2:#e8a45c; --s3:#4ec98a; --s4:#f2796f; --s5:#bb8ae8; --s6:#5cc3d8;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
+    padding:24px 16px 64px;
+  }
+  .wrap { max-width:1120px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 2px; letter-spacing:-.01em; }
+  h2 { font-size:14px; margin:0 0 3px; letter-spacing:-.01em; }
+  .sub { color:var(--dim); font-size:13px; margin:0 0 22px; }
+  .sub a { color:var(--accent); }
+  .card {
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:18px 20px; margin-bottom:16px;
+  }
+  .cardhead { display:flex; justify-content:space-between; align-items:baseline;
+              gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .cardhead .why { color:var(--dim); font-size:12.5px; }
+
+  .form { display:grid; gap:12px; grid-template-columns:1fr; }
+  @media (min-width:760px) { .form { grid-template-columns:repeat(3,1fr); } }
+  .f { display:flex; flex-direction:column; gap:5px; min-width:0; }
+  .f label { font-size:11.5px; letter-spacing:.04em; text-transform:uppercase; color:var(--dim); }
+  select {
+    font:14px inherit; color:var(--ink); background:var(--panel);
+    border:1px solid var(--line); border-radius:7px; padding:8px 10px; width:100%;
+  }
+  button {
+    font:600 13px inherit; padding:6px 13px; border-radius:7px; cursor:pointer;
+    border:1px solid var(--accent); background:transparent; color:var(--accent);
+  }
+  button:disabled { opacity:.45; cursor:default; }
+
+  /* 지도 -- 시도 타일. 경계 데이터를 안 씁니다 (아래 note 참고) */
+  .mapwrap { display:grid; gap:18px; grid-template-columns:1fr; }
+  @media (min-width:820px) { .mapwrap { grid-template-columns:minmax(0,420px) minmax(0,1fr); } }
+  .tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+  .tile {
+    position:relative; border:1px solid var(--line); border-radius:8px;
+    padding:9px 10px 10px; text-align:left; cursor:pointer; background:var(--panel);
+    color:var(--ink); font:inherit; min-height:72px;
+  }
+  .tile:disabled { cursor:default; }
+  .tile .nm { font-size:12.5px; font-weight:600; letter-spacing:-.01em; }
+  .tile .v  { font-size:17px; font-weight:650; margin-top:4px; letter-spacing:-.02em;
+              font-variant-numeric:tabular-nums; }
+  .tile .n  { font-size:11px; color:var(--dim); margin-top:1px; }
+  .tile.on  { outline:2px solid var(--accent); outline-offset:-2px; }
+  .tile.no  { background:
+      repeating-linear-gradient(135deg, transparent 0 5px, var(--soft) 5px 10px);
+      color:var(--dim); }
+  .tile.no .v { font-size:12.5px; font-weight:500; color:var(--dim); }
+  .legend { display:flex; align-items:center; gap:7px; margin-top:12px;
+            font-size:11.5px; color:var(--dim); flex-wrap:wrap; }
+  .sw { width:22px; height:11px; border-radius:2px; border:1px solid var(--line); }
+
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line);
+          white-space:nowrap; }
+  th { color:var(--dim); font-weight:600; font-size:11.5px; letter-spacing:.04em;
+       text-transform:uppercase; position:sticky; top:0; background:var(--panel); }
+  th.s { cursor:pointer; user-select:none; }
+  th.s:hover { color:var(--ink); }
+  td.num,th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  tbody tr:last-child td { border-bottom:none; }
+  tbody tr.pick td { background:color-mix(in srgb, var(--accent) 8%, transparent); }
+  .scroll { overflow-x:auto; max-height:460px; overflow-y:auto; }
+  .chip {
+    display:inline-flex; align-items:center; gap:6px; font-size:12.5px;
+    border:1px solid var(--line); border-radius:999px; padding:3px 6px 3px 10px;
+    margin:0 6px 6px 0; background:var(--panel);
+  }
+  .chip .dot { width:9px; height:9px; border-radius:50%; flex:none; }
+  .chip button { border:none; background:transparent; color:var(--dim);
+                 padding:0 2px; font-size:15px; line-height:1; }
+  .picks { min-height:30px; }
+
+  .note { color:var(--dim); font-size:12.5px; margin-top:12px; line-height:1.55; }
+  .note b { color:var(--ink); }
+  .alert, .warn {
+    padding:11px 14px; border-radius:8px; font-size:13.5px; margin-bottom:16px;
+  }
+  .alert { background:color-mix(in srgb, var(--bad) 10%, transparent);
+           border:1px solid color-mix(in srgb, var(--bad) 35%, transparent); color:var(--bad); }
+  .warn  { background:color-mix(in srgb, var(--warn) 10%, transparent);
+           border:1px solid color-mix(in srgb, var(--warn) 35%, transparent); color:var(--warn); }
+  .empty { color:var(--dim); text-align:center; padding:38px 12px; font-size:14px; }
+  code { font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;
+         background:var(--soft); padding:1px 5px; border-radius:4px; }
+  .foot { color:var(--dim); font-size:12.5px; margin-top:26px; text-align:center; }
+  .foot a { color:var(--accent); }
+  svg text { fill:var(--dim); font-size:10.5px; }
+  svg .grid { stroke:var(--line); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>지역 비교</h1>
+  <p class="sub">
+    국토교통부 아파트 매매 실거래가 ·
+    <a href="./index.html">수집 현황</a> ·
+    <a href="./search.html">실거래가 조회</a> ·
+    <a href="./swagger.html">API 문서</a>
+  </p>
+
+  <div id="banner"></div>
+
+  <!-- 무엇을 언제 기준으로 볼 것인가 -->
+  <div class="card">
+    <div class="form">
+      <div class="f">
+        <label for="metric">무엇을</label>
+        <select id="metric">
+          <option value="price_manwon_median">중위 거래가</option>
+          <option value="deal_count">거래량</option>
+          <option value="area_m2_median">중위 전용면적</option>
+        </select>
+      </div>
+      <div class="f">
+        <label for="month">어느 달 (계약 기준)</label>
+        <select id="month"></select>
+      </div>
+      <div class="f">
+        <label for="sido">어느 시도</label>
+        <select id="sido"><option value="">전국</option></select>
+      </div>
+    </div>
+    <div class="note" id="asofnote"></div>
+  </div>
+
+  <!-- 지도 + 시군구 표 -->
+  <div class="card">
+    <div class="cardhead">
+      <div>
+        <h2>어디가 높고 낮은가</h2>
+        <div class="why">타일을 누르면 그 시도의 시군구만 아래 표에 남습니다.</div>
+      </div>
+      <button id="clearSido" disabled>전국으로</button>
+    </div>
+
+    <div class="mapwrap">
+      <div>
+        <div class="tiles" id="tiles"></div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="scroll">
+        <table id="tbl">
+          <thead><tr>
+            <th class="s" data-k="name">시군구</th>
+            <th class="s num" data-k="deal_count">거래</th>
+            <th class="s num" data-k="price_manwon_median">중위가</th>
+            <th class="s num" data-k="price_manwon_max">최고가</th>
+            <th class="s num" data-k="area_m2_median">중위면적</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>시도 타일의 가격은 그 시도 시군구 중위가들의 중앙값입니다.</b>
+      원본에 시도 단위 중위값이 없어서 계산한 근사치입니다 — 시군구마다 거래량이
+      달라서 진짜 중위가와는 차이가 납니다. 거래량은 합이라 정확합니다.
+      <br>
+      <b>전남·광주가 한 칸인 이유</b>는 실거래가 API 가 두 지역을 같은
+      <code>12xxx</code> 코드 묶음으로 돌려주기 때문입니다
+      (<code>config/regions.yml</code>).
+    </div>
+  </div>
+
+  <!-- 시계열 비교 -->
+  <div class="card">
+    <div class="cardhead">
+      <div>
+        <h2>골라서 겹쳐 보기</h2>
+        <div class="why">표에서 <b>담기</b> 를 누르면 최대 6개까지 겹칩니다.</div>
+      </div>
+      <button id="clearPicks" disabled>비우기</button>
+    </div>
+    <div class="picks" id="picks"></div>
+    <div id="chart"></div>
+    <div class="note" id="chartnote"></div>
+  </div>
+
+  <p class="foot">
+    자료 <a id="srcLink" href="#">data/series/molit_apt_trade.json</a> (GitHub 미러) ·
+    <span id="updated"></span>
+  </p>
+</div>
+
+<script>
+// 이 화면은 **미러 파일 하나**만 읽습니다 (series). DB 가 꺼져 있어도 뜹니다.
+// series 는 시점별 요약이라 몇 백 KB 밖에 안 되고, 지역 비교에 필요한
+// 값(거래량·중위가·중위면적)이 시군구별로 이미 들어 있습니다.
+const RAW = "https://raw.githubusercontent.com/xg1988/jobs-common-data-injest/main";
+const SRC = "molit_apt_trade";
+const MAX_PICK = 6;
+
+const $  = id => document.getElementById(id);
+const nf = n => (n ?? 0).toLocaleString("ko-KR");
+const eok = m => m == null ? "—" : (m / 10000).toFixed(2) + "억";
+
+// 지도. 경계 좌표(GeoJSON)를 쓰지 않고 타일 격자로 그립니다.
+//   - 시군구 254개 경계는 수 MB 라, 요약 몇 백 KB 를 보려고 그걸 받는 건
+//     배보다 배꼽입니다. 외부 지도 API 는 키가 필요해서 GitHub Pages 에서
+//     조용히 안 뜨는 화면이 됩니다.
+//   - 여기서 답할 질문은 "어디가 비싼가" 지 "경계가 어디까지인가" 가 아닙니다.
+// 위치는 실제 방위에 맞춰 뒀습니다 (왼쪽=서, 위=북).
+const TILES = [
+  ["인천", "서울", "경기", "강원"],
+  ["충남", "세종", "충북", "경북"],
+  ["전북", "대전", "대구", "울산"],
+  ["전남광주", null, "경남", "부산"],
+  ["제주", null, null, null],
+];
+const TILE_LABEL = { "전남광주": "전남·광주" };
+
+const METRIC = {
+  price_manwon_median: { label:"중위 거래가", fmt:eok,  agg:"median" },
+  deal_count:          { label:"거래량",      fmt:v => nf(v) + "건", agg:"sum" },
+  area_m2_median:      { label:"중위 전용면적", fmt:v => v == null ? "—" : v.toFixed(1) + "㎡",
+                         agg:"median" },
+};
+
+let REGIONS = null;   // regions.json
+let SIDO_OF = {};     // 지역코드 -> 시도 이름
+let NAME_OF = {};     // 지역코드 -> 시군구 이름
+let BY_MONTH = {};    // as_of -> { 지역코드: metrics }
+let MONTHS = [];      // as_of 오름차순
+let PICKS = [];       // 담은 지역코드
+let SORT = { key:"deal_count", dir:-1 };
+
+const median = xs => {
+  const a = xs.filter(v => v != null).sort((p, q) => p - q);
+  if (!a.length) return null;
+  const m = a.length >> 1;
+  return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
+};
+
+// ---- 읽기 ----------------------------------------------------------------
+
+async function load() {
+  const [regions, series] = await Promise.all([
+    fetch("./regions.json").then(r => {
+      if (!r.ok) throw new Error("regions.json (HTTP " + r.status + ")");
+      return r.json();
+    }),
+    fetch(`${RAW}/data/series/${SRC}.json`).then(r => {
+      if (!r.ok) throw new Error("series (HTTP " + r.status + ")");
+      return r.json();
+    }),
+  ]);
+
+  REGIONS = regions;
+  for (const [sido, list] of Object.entries(regions.sido))
+    for (const g of list) { SIDO_OF[g.code] = sido; NAME_OF[g.code] = g.name; }
+
+  // 한 as_of 를 여러 날 잽니다 (신고가 늦게 들어오니까). 그중 **가장 나중에
+  // 잰 것**이 제일 채워진 값입니다. 아무거나 쓰면 옛날에 잰 덜 찬 값이
+  // 섞여서 "그 달은 거래가 적었다" 로 보입니다.
+  const newest = {};
+  for (const p of series.points || []) {
+    const cur = newest[p.as_of];
+    if (!cur || (p.collected_at || "") > (cur.collected_at || "")) newest[p.as_of] = p;
+  }
+  for (const [as_of, p] of Object.entries(newest))
+    BY_MONTH[as_of] = p.metrics?.by_region || {};
+  MONTHS = Object.keys(BY_MONTH).sort();
+
+  $("updated").textContent = "갱신 " + (series.updated_at || "—").slice(0, 10);
+  $("srcLink").href = `${RAW}/data/series/${SRC}.json`;
+  return newest;
+}
+
+// ---- 배너 -- 모르는 걸 아는 척하지 않기 -----------------------------------
+
+function banner(newest) {
+  const out = [];
+  const last = MONTHS[MONTHS.length - 1];
+  const covered = new Set();
+  for (const m of MONTHS) for (const c of Object.keys(BY_MONTH[m])) covered.add(c);
+
+  if (covered.size < (REGIONS.region_count || 0)) {
+    out.push(`<div class="warn">이 화면에 담긴 시군구는 <b>${nf(covered.size)}개</b>
+      입니다. 수집 대상은 ${nf(REGIONS.region_count)}개예요 — 아직 안 들어온
+      지역은 지도에서 빗금으로 표시했습니다. <b>"거래가 없는 곳"이 아니라
+      "아직 안 받은 곳"</b> 입니다.</div>`);
+  }
+  const p = newest[last];
+  if (p && p.partial)
+    out.push(`<div class="warn">${last} 은 수집이 덜 된 회차(partial)입니다.</div>`);
+
+  $("banner").innerHTML = out.join("");
+}
+
+// ---- 지도 ----------------------------------------------------------------
+
+function sidoValue(sido, key) {
+  const cells = BY_MONTH[$("month").value] || {};
+  const vals = [], counts = [];
+  for (const [code, m] of Object.entries(cells)) {
+    if (SIDO_OF[code] !== sido) continue;
+    vals.push(m[key]); counts.push(m.deal_count || 0);
+  }
+  if (!vals.length) return null;
+  const agg = METRIC[key].agg === "sum"
+    ? vals.reduce((a, b) => a + (b || 0), 0)
+    : median(vals);
+  return { value: agg, regions: vals.length, deals: counts.reduce((a, b) => a + b, 0) };
+}
+
+// 5단계. 값 순위(분위)로 나눕니다 -- 한 지역이 튀어도 나머지가 전부
+// 같은 색으로 뭉개지지 않게.
+function shadeScale(values) {
+  const a = values.filter(v => v != null).sort((p, q) => p - q);
+  if (!a.length) return () => 0;
+  const cuts = [.2, .4, .6, .8].map(q => a[Math.floor(q * (a.length - 1))]);
+  return v => v == null ? 0 : cuts.filter(c => v > c).length + 1;   // 1..5
+}
+const shadeCss = step =>
+  step === 0 ? "var(--panel)"
+             : `color-mix(in srgb, var(--accent) ${step * 15 + 5}%, var(--panel))`;
+
+function drawMap() {
+  const key = $("metric").value;
+  const vals = {}, box = [];
+  for (const row of TILES) for (const sido of row) {
+    if (!sido) continue;
+    vals[sido] = sidoValue(sido, key);
+    if (vals[sido]) box.push(vals[sido].value);
+  }
+  const shade = shadeScale(box);
+  const sel = $("sido").value;
+
+  $("tiles").innerHTML = TILES.flat().map(sido => {
+    if (!sido) return `<div></div>`;
+    const v = vals[sido];
+    const label = TILE_LABEL[sido] || sido;
+    if (!v) return `<button class="tile no" disabled>
+        <div class="nm">${label}</div><div class="v">자료 없음</div>
+        <div class="n">아직 안 받음</div></button>`;
+    const step = shade(v.value);
+    return `<button class="tile${sel === sido ? " on" : ""}" data-sido="${sido}"
+              style="background:${shadeCss(step)}"
+              title="${label} · 시군구 ${v.regions}개">
+        <div class="nm">${label}</div>
+        <div class="v">${METRIC[key].fmt(v.value)}</div>
+        <div class="n">${nf(v.deals)}건 · ${v.regions}개 시군구</div>
+      </button>`;
+  }).join("");
+
+  for (const el of document.querySelectorAll(".tile[data-sido]"))
+    el.onclick = () => { $("sido").value = el.dataset.sido; render(); };
+
+  $("legend").innerHTML =
+    `<span>${METRIC[key].label} 낮음</span>`
+    + [1,2,3,4,5].map(s => `<span class="sw" style="background:${shadeCss(s)}"></span>`).join("")
+    + `<span>높음</span>`
+    + `<span class="sw" style="background:repeating-linear-gradient(135deg,transparent 0 5px,var(--soft) 5px 10px)"></span>`
+    + `<span>자료 없음</span>`;
+}
+
+// ---- 시군구 표 ------------------------------------------------------------
+
+function tableRows() {
+  const cells = BY_MONTH[$("month").value] || {};
+  const sido = $("sido").value;
+  return Object.entries(cells)
+    .filter(([code]) => !sido || SIDO_OF[code] === sido)
+    .map(([code, m]) => ({
+      code, name: (SIDO_OF[code] || "") + " " + (NAME_OF[code] || code), ...m,
+    }))
+    .sort((a, b) => {
+      const k = SORT.key;
+      const x = a[k], y = b[k];
+      if (k === "name") return SORT.dir * String(x).localeCompare(String(y), "ko");
+      return SORT.dir * ((x ?? -Infinity) - (y ?? -Infinity));
+    });
+}
+
+function drawTable() {
+  const rows = tableRows();
+  if (!rows.length) {
+    $("rows").innerHTML = `<tr><td colspan="6" class="empty">이 달에는 자료가 없습니다.</td></tr>`;
+    return;
+  }
+  $("rows").innerHTML = rows.map(r => `
+    <tr class="${PICKS.includes(r.code) ? "pick" : ""}">
+      <td>${r.name}</td>
+      <td class="num">${nf(r.deal_count)}</td>
+      <td class="num">${eok(r.price_manwon_median)}</td>
+      <td class="num">${eok(r.price_manwon_max)}</td>
+      <td class="num">${r.area_m2_median == null ? "—" : r.area_m2_median.toFixed(1)}</td>
+      <td class="num"><button data-pick="${r.code}"
+          ${PICKS.length >= MAX_PICK && !PICKS.includes(r.code) ? "disabled" : ""}>
+          ${PICKS.includes(r.code) ? "뺀다" : "담기"}</button></td>
+    </tr>`).join("");
+
+  for (const el of document.querySelectorAll("[data-pick]"))
+    el.onclick = () => {
+      const c = el.dataset.pick;
+      PICKS = PICKS.includes(c) ? PICKS.filter(x => x !== c)
+                                : PICKS.concat(c).slice(0, MAX_PICK);
+      render();
+    };
+}
+
+// ---- 겹쳐 보기 ------------------------------------------------------------
+
+function drawPicks() {
+  $("clearPicks").disabled = !PICKS.length;
+  $("picks").innerHTML = PICKS.length
+    ? PICKS.map((c, i) => `<span class="chip">
+        <span class="dot" style="background:var(--s${i + 1})"></span>
+        ${(SIDO_OF[c] || "") + " " + (NAME_OF[c] || c)}
+        <button data-drop="${c}" title="빼기">×</button></span>`).join("")
+    : `<span class="note">아직 담은 지역이 없습니다. 위 표에서 <b>담기</b> 를 누르세요.</span>`;
+
+  for (const el of document.querySelectorAll("[data-drop]"))
+    el.onclick = () => { PICKS = PICKS.filter(x => x !== el.dataset.drop); render(); };
+}
+
+function drawChart() {
+  const key = $("metric").value;
+  if (!PICKS.length) { $("chart").innerHTML = ""; $("chartnote").textContent = ""; return; }
+
+  const W = 900, H = 300, P = { l:64, r:14, t:14, b:30 };
+  const series = PICKS.map(c => MONTHS.map(m => (BY_MONTH[m][c] || {})[key] ?? null));
+  const flat = series.flat().filter(v => v != null);
+  if (!flat.length) {
+    $("chart").innerHTML = `<div class="empty">담은 지역에 이 지표가 없습니다.</div>`;
+    return;
+  }
+  const lo = 0, hi = Math.max(...flat) * 1.1 || 1;
+  const x = i => P.l + (MONTHS.length < 2 ? 0
+                        : i * (W - P.l - P.r) / (MONTHS.length - 1));
+  const y = v => H - P.b - (v - lo) / (hi - lo) * (H - P.t - P.b);
+
+  const ticks = [0, .25, .5, .75, 1].map(f => lo + f * (hi - lo));
+  const every = Math.max(1, Math.ceil(MONTHS.length / 12));
+
+  $("chart").innerHTML = `
+  <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img"
+       aria-label="${METRIC[key].label} 월별 비교">
+    ${ticks.map(t => `<line class="grid" x1="${P.l}" x2="${W - P.r}"
+        y1="${y(t)}" y2="${y(t)}"/>
+      <text x="${P.l - 8}" y="${y(t) + 3.5}" text-anchor="end">${METRIC[key].fmt(t)}</text>`).join("")}
+    ${MONTHS.map((m, i) => i % every ? "" :
+      `<text x="${x(i)}" y="${H - 10}" text-anchor="middle">${m.slice(2)}</text>`).join("")}
+    ${series.map((vals, si) => {
+      const pts = vals.map((v, i) => v == null ? null : `${x(i)},${y(v)}`).filter(Boolean);
+      return `<polyline fill="none" stroke="var(--s${si + 1})" stroke-width="2"
+                stroke-linejoin="round" points="${pts.join(" ")}"/>`
+        + vals.map((v, i) => v == null ? "" :
+            `<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="var(--s${si + 1})"/>`).join("");
+    }).join("")}
+  </svg>`;
+
+  $("chartnote").innerHTML =
+    `가로축은 <b>계약 기준월(as_of)</b> 입니다. 오른쪽 끝 한두 달은 신고가 아직
+     덜 들어와서 낮게 보입니다 — 실제로 줄어든 게 아닙니다.
+     취소된 신고는 요약에서 빠져 있습니다.`;
+}
+
+// ---- 그리기 --------------------------------------------------------------
+
+function render() {
+  $("clearSido").disabled = !$("sido").value;
+  drawMap(); drawTable(); drawPicks(); drawChart();
+
+  const m = $("month").value;
+  const idx = MONTHS.indexOf(m);
+  $("asofnote").innerHTML = idx >= MONTHS.length - 2
+    ? `<b>${m}</b> 은 아직 신고가 들어오는 중입니다. 계약일로부터 30일 안에
+       신고하게 되어 있어서, 최근 한두 달은 실제보다 작게 보입니다.`
+    : `<b>${m}</b> 계약 기준. 12개월 넘은 달은 사실상 확정된 값입니다.`;
+}
+
+// ---- 시작 ----------------------------------------------------------------
+
+(async () => {
+  try {
+    const newest = await load();
+    if (!MONTHS.length) throw new Error("series 에 점이 없습니다");
+
+    $("month").innerHTML = MONTHS.slice().reverse()
+      .map(m => `<option value="${m}">${m}</option>`).join("");
+    $("month").value = MONTHS[MONTHS.length - 1];
+
+    $("sido").innerHTML = '<option value="">전국</option>'
+      + TILES.flat().filter(Boolean)
+          .map(s => `<option value="${s}">${TILE_LABEL[s] || s}</option>`).join("");
+
+    for (const id of ["metric", "month", "sido"]) $(id).onchange = render;
+    $("clearSido").onclick  = () => { $("sido").value = ""; render(); };
+    $("clearPicks").onclick = () => { PICKS = []; render(); };
+
+    for (const th of document.querySelectorAll("th.s"))
+      th.onclick = () => {
+        const k = th.dataset.k;
+        SORT = { key:k, dir: SORT.key === k ? -SORT.dir : (k === "name" ? 1 : -1) };
+        drawTable();
+      };
+
+    banner(newest);
+    render();
+  } catch (e) {
+    $("banner").innerHTML =
+      `<div class="alert">자료를 못 읽었습니다 — ${e.message}.
+       미러가 아직 안 올라왔거나 네트워크가 막혀 있습니다.</div>`;
+  }
+})();
+</script>
+</body>
+</html>
