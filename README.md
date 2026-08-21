@@ -21,6 +21,7 @@
 - [db/](db/) — Supabase 스키마와 미러 당겨오기 함수
 - [docs/DASHBOARD.md](docs/DASHBOARD.md) — 대시보드·조회·비교 화면 기획
 - [docs/VPS_DB.md](docs/VPS_DB.md) — DB 를 Supabase 에서 VPS 로 옮기기 (진행 중)
+- [docs/VPS_MOVE.md](docs/VPS_MOVE.md) — 수집 서버를 다른 호스팅으로 이사하기
 - [web/](web/) — 대시보드와 API 문서 (Swagger)
 
 **바로 열기** (GitHub Pages)

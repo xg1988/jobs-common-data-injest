@@ -27,7 +27,8 @@
 
 | 항목 | 값 |
 |---|---|
-| 어디서 | VPS `contabo` (`/opt/jobs-common-data-injest`) |
+| 어디서 | VPS (ssh 별칭 `cmn-vps`, `/opt/jobs-common-data-injest`) |
+| 어디로 옮기나 | [VPS_MOVE.md](VPS_MOVE.md) — **옮기기 전에 상류 도달성부터 재세요** |
 | 트리거 | `crontab`: `CRON_TZ=Asia/Seoul` + `10 0 * * *` = **매일 00:10 KST** |
 | 스크립트 | `scripts/daily.sh` |
 | 명령 | `python -m ingest run --all --verbose` |
