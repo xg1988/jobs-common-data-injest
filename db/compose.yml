@@ -1,0 +1,54 @@
+# VPS 에서 DB + PostgREST 를 띄웁니다.
+#
+# 왜 PostgREST 인가
+#   Supabase 의 API 가 바로 이것입니다 (오픈소스). 그래서 소비자 쿼리
+#   문자열도, ingest/db.py 도 그대로 씁니다. 주소와 키만 바뀝니다.
+#
+# 포트를 127.0.0.1 에만 묶은 이유
+#   Postgres(5432) 는 절대 밖으로 열지 않습니다.
+#   PostgREST(3000) 도 직접 열지 않고, 앞에 리버스 프록시(caddy/nginx)를
+#   두고 TLS 를 붙여 내보냅니다. 프록시가 없으면 밖에서 아무도 못 읽습니다 --
+#   그게 기본값으로 안전합니다.
+#
+# 쓰는 법: scripts/vps_db_setup.sh 가 이 파일을 씁니다.
+
+services:
+  db:
+    image: postgres:17
+    container_name: mkt-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 가 필요합니다}
+      POSTGRES_DB: market
+      # 한글 정렬·검색이 어긋나지 않게 초기화 옵션을 못 박습니다.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d market"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rest:
+    image: postgrest/postgrest:v12.2.3
+    container_name: mkt-rest
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${AUTHENTICATOR_PASSWORD:?AUTHENTICATOR_PASSWORD 가 필요합니다}@db:5432/market
+      PGRST_DB_SCHEMAS: public
+      # 키 없이 들어오면 이 역할이 됩니다 -- 읽기만 됩니다.
+      # Supabase 와 같은 이름(anon)을 씁니다. schema.sql 의 "공개 읽기"
+      # 정책이 anon 을 지목하고 있어서, 다른 이름을 쓰면 RLS 에 막힙니다.
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 이 필요합니다}
+      PGRST_DB_POOL: "6"
+      # 한 번에 너무 큰 응답이 나가지 않게. 소비자는 Range 헤더로 넘깁니다.
+      PGRST_DB_MAX_ROWS: "10000"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy

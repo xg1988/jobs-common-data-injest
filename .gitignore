@@ -17,3 +17,6 @@ venv/
 Thumbs.db
 desktop.ini
 logs/
+
+db/.env.db
+db/pgdata/

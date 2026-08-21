@@ -39,16 +39,24 @@ $ nslookup hmsyfipqrvdfitzmuaph.supabase.co
 | `ingest/db.py` | ✗ 그대로 (주소·키만 환경변수로) |
 | `db/schema.sql` | 거의 그대로 (역할 이름만 만들어 주면 됩니다) |
 | **base URL** | ✅ 바뀝니다 |
-| **읽기 키** | ✅ 바뀝니다 |
+| **읽기 키** | ✅ 없어집니다 (아래) |
 
-소비자가 고칠 건 **두 줄**입니다.
+소비자가 고칠 건 **주소 한 줄**입니다.
 
 ```diff
 - BASE=https://hmsyfipqrvdfitzmuaph.supabase.co/rest/v1
-- KEY=sb_publishable_...
-+ BASE=https://<새 도메인>/rest/v1
-+ KEY=<새 공개 읽기 키>
+- curl "$BASE/mkt_apt_trade?..." -H "apikey: sb_publishable_..."
++ BASE=https://<새 도메인>
++ curl "$BASE/mkt_apt_trade?..."
 ```
+
+`apikey` 헤더가 없어도 됩니다. Supabase 의 publishable 키는 어차피 공개
+값이었고, PostgREST 는 키 없이 들어온 요청을 `anon` 역할로 받습니다 —
+RLS 가 읽기만 허용하므로 결과는 같습니다. 헤더를 계속 보내도 무시됩니다.
+`/rest/v1` 접두사도 사라집니다 (그건 Supabase 의 라우팅이었습니다).
+
+키가 없다는 건 **아무나 읽을 수 있다**는 뜻이기도 합니다. 공개 데이터라
+문제는 아니지만, 프록시에서 요청 수 제한(rate limit)은 걸어 두세요.
 
 ---
 
@@ -69,9 +77,10 @@ VPS 수집 -> 파일 -> GitHub 미러 (그대로 유지)
               \-> localhost:3000 (PostgREST) -> Postgres
 ```
 
-`ingest sync` 가 이미 그 일을 합니다. `scripts/daily.sh` 에 한 줄
-추가하면 끝입니다. `db/pull_from_mirror.sql` 은 **지우지 말고 남겨 두세요** —
-되돌릴 때 그대로 씁니다.
+`ingest sync` 가 이미 그 일을 하고, `scripts/daily.sh` 에도 이미
+들어가 있습니다 (DB 설정이 있을 때만 돕니다).
+`db/pull_from_mirror.sql` 은 **지우지 말고 남겨 두세요** — 되돌릴 때
+그대로 씁니다.
 
 ### 2. 보안 성질이 바뀝니다 (중요)
 
@@ -109,54 +118,49 @@ VPS 수집 -> 파일 -> GitHub 미러 (그대로 유지)
 
 ## 순서
 
+### 0) 한 줄로
+
+아래 1~4단계를 대신 해 주는 스크립트가 있습니다. 여러 번 돌려도 안전하고,
+**데이터는 절대 지우지 않습니다.**
+
+```bash
+bash scripts/vps_db_setup.sh
+```
+
+무엇을 하는지 알고 쓰시라고 아래에 그대로 풀어 뒀습니다.
+
 ### 1) 올린다
 
-`/opt/jobs-common-data-injest/db/compose.yml`
+[`db/compose.yml`](../db/compose.yml) — 저장소에 들어 있습니다.
 
-```yaml
-services:
-  db:
-    image: postgres:17
-    restart: unless-stopped
-    environment:
-      POSTGRES_PASSWORD: ${PGPASSWORD}
-      POSTGRES_DB: market
-    volumes: ["./pgdata:/var/lib/postgresql/data"]
-    ports: ["127.0.0.1:5432:5432"]      # 밖으로 열지 않습니다
-  rest:
-    image: postgrest/postgrest:v12.2.3
-    restart: unless-stopped
-    environment:
-      PGRST_DB_URI: postgres://authenticator:${AUTHPASS}@db:5432/market
-      PGRST_DB_SCHEMAS: public
-      PGRST_DB_ANON_ROLE: web_anon
-      PGRST_JWT_SECRET: ${JWT_SECRET}    # 32자 이상
-    ports: ["127.0.0.1:3000:3000"]
-    depends_on: [db]
-```
+포트를 `127.0.0.1` 에만 묶습니다. Postgres(5432)는 **절대** 밖으로 열지
+않고, PostgREST(3000)도 직접 열지 않습니다 — 앞에 리버스 프록시를 두고
+TLS 를 붙여 내보냅니다. 프록시를 안 붙이면 밖에서 아무도 못 읽습니다.
+기본값이 안전한 쪽이어야 합니다.
 
 ### 2) 역할을 만든다
 
 `schema.sql` 은 `anon` / `authenticated` / `service_role` 을 씁니다.
-Supabase 가 미리 만들어 두는 이름이라, VPS 에서는 직접 만듭니다.
+Supabase 가 미리 만들어 두는 이름이라, VPS 에서는 직접 만듭니다 —
+[`db/vps_roles.sql`](../db/vps_roles.sql) 이 그 일을 합니다.
 
-```sql
-create role web_anon nologin;
-create role anon nologin;                      -- schema.sql 의 정책이 씁니다
-create role authenticated nologin;
-create role service_role nologin bypassrls;
-create role authenticator noinherit login password '...';
-grant web_anon, anon, authenticated, service_role to authenticator;
+핵심은 `authenticator` 에 붙은 **`noinherit`** 입니다. 이게 없으면 익명
+요청이 `service_role` 권한을 물려받습니다 — 아무나 쓰기가 됩니다.
 
-grant usage on schema public to web_anon, anon, authenticated, service_role;
-grant select on all tables in schema public to web_anon, anon, authenticated;
-grant all    on all tables in schema public to service_role;
-alter default privileges in schema public
-  grant select on tables to web_anon, anon, authenticated;
+```bash
+psql -v authenticator_password="'...'" -f db/vps_roles.sql
+psql -f db/schema.sql        # 순서가 중요합니다. 역할이 먼저입니다
 ```
 
-그다음 `db/schema.sql` 을 그대로 실행합니다. RLS 정책("공개 읽기")이
-그대로 붙습니다.
+**쓰기 키(JWT)** 는 표준 라이브러리만으로 만듭니다.
+
+```bash
+python scripts/make_jwt.py --secret "$JWT_SECRET" --role service_role
+```
+
+만료를 안 넣습니다. 이 토큰은 서버 안(`.env`)에만 있고, 만료를 넣으면
+어느 날 새벽 수집이 조용히 401 로 죽습니다. 무효화가 필요하면
+`JWT_SECRET` 을 바꾸세요 — 그 순간 기존 토큰이 전부 못 쓰게 됩니다.
 
 ### 3) 데이터를 넣는다
 
@@ -180,11 +184,9 @@ DB_API_KEY=<service_role 로 서명한 JWT>
 `ingest/db.py` 는 `DB_API_*` 를 먼저 보고, 없으면 예전 `SUPABASE_*` 로
 물러섭니다. 그래서 **한 줄씩 옮겨도 중간에 안 깨집니다.**
 
-`scripts/daily.sh` 의 수집 다음 줄에 추가:
-
-```bash
-"$PY" -m ingest sync --all
-```
+`scripts/daily.sh` 에는 **이미 들어가 있습니다.** DB 설정이 있을 때만
+돌고, 없으면 건너뜁니다 (`db.enabled()` 로 판단). 그래서 이전 전에 미리
+올려 둬도 아무 일도 일어나지 않습니다.
 
 ### 5) 백업
 

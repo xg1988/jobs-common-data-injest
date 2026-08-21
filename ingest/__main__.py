@@ -185,8 +185,8 @@ def cmd_sync(args) -> int:
     if not db.enabled():
         raise SystemExit(
             f"{db.why_disabled()}\n"
-            f"  서버라면 {storage.ROOT / '.env'} 에 SUPABASE_URL 과\n"
-            f"  SUPABASE_SERVICE_ROLE_KEY 를 넣으세요."
+            f"  서버라면 {storage.ROOT / '.env'} 에 {db.URL_ENV[0]} 과\n"
+            f"  {db.KEY_ENV[0]} 를 넣으세요 (docs/VPS_DB.md)."
         )
 
     log = _make_logger(True)
